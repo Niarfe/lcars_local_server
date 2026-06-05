@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}LCARS tmux{% endblock %}
+{% block content %}
+<header class="hero">
+  <div>
+    <div class="eyebrow">TERMINAL SESSION MONITOR</div>
+    <h1>TMUX SESSIONS</h1>
+  </div>
+  <div class="hero-badges">
+    <button id="refresh-tmux" class="badge">REFRESH</button>
+    <a class="badge alt linklike" href="{{ url_for('api_tmux_sessions') }}">JSON</a>
+  </div>
+</header>
+
+<section class="panel">
+  <div class="panel-header">
+    <span>SESSIONS</span>
+    <span class="subtle" id="tmux-count">{{ sessions|length }} FOUND</span>
+  </div>
+
+  <div id="tmux-list" class="server-list">
+    {% if sessions %}
+      {% for session in sessions %}
+      <div class="server-card tmux-card">
+        <div class="server-main">
+          <div class="launch-group">
+            <button class="lcars-port copy-attach" data-command="{{ session.attach_command }}">COPY</button>
+            <button class="lcars-tab">{{ session.status }}</button>
+          </div>
+
+          <div class="server-meta">
+            <div class="server-name">{{ session.name }}</div>
+            <div class="server-badges">
+              <span class="server-badge local">{{ session.windows or "?" }} WINDOWS</span>
+              <span class="server-badge {{ 'up' if session.status == 'ATTACHED' else 'remote' }}">{{ session.status }}</span>
+            </div>
+            <div class="subtle">ATTACH: {{ session.attach_command }}</div>
+            {% if session.created %}
+            <div class="server-url">CREATED {{ session.created }} · ACTIVITY {{ session.activity }}</div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="empty-state">
+        <div class="empty-title">NO TMUX SESSIONS FOUND</div>
+        <div class="subtle">Start one with: tmux new -s session_name</div>
+      </div>
+    {% endif %}
+  </div>
+</section>
+
+<script>
+  window.__INITIAL_TMUX_SESSIONS__ = {{ sessions|tojson }};
+</script>
+<script src="{{ url_for('static', filename='js/tmux.js') }}"></script>
+{% endblock %}

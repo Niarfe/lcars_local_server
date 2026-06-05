@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}LCARS Markdown{% endblock %}
+{% block content %}
+<header class="hero">
+  <div>
+    <div class="eyebrow">LOCAL MARKDOWN LIBRARY</div>
+    <h1>MARKDOWN DOCS</h1>
+  </div>
+  <div class="hero-badges">
+    <a class="badge linklike" href="{{ url_for('markdown_new') }}">NEW DOCUMENT</a>
+    <div class="badge gold">{{ docs|length }} DOCS</div>
+  </div>
+</header>
+
+<section class="panel">
+  <div class="panel-header">
+    <span>AVAILABLE DOCUMENTS</span>
+    <span class="subtle">.MD</span>
+  </div>
+  <input id="markdown-filter" class="library-filter" type="text" placeholder="FILTER PREFIX OR TEXT, E.G. 6050" />
+  {% if docs %}
+  <div class="book-list" id="markdown-doc-list">
+    {% for doc in docs %}
+    <div class="book-row markdown-doc-row" data-name="{{ doc.name|lower }}" data-path="{{ doc.path|lower }}">
+      <a class="book-row-main" href="{{ url_for('markdown_view', doc_id=doc.id) }}">
+        <div class="book-title">{{ doc.name }}</div>
+        <div class="subtle">{{ doc.path }}</div>
+      </a>
+      <div class="markdown-doc-actions">
+        <button class="mini alt actions-toggle" type="button">ACTIONS</button>
+        <div class="actions-menu">
+          <a href="{{ url_for('markdown_view', doc_id=doc.id) }}">VIEW</a>
+          <a href="{{ url_for('markdown_edit', doc_id=doc.id) }}">EDIT</a>
+          <button class="rename-markdown" data-doc-id="{{ doc.id }}" data-doc-name="{{ doc.name }}">RENAME</button>
+          <button class="delete-markdown" data-doc-id="{{ doc.id }}" data-doc-name="{{ doc.name }}">DELETE</button>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-title">NO MARKDOWN FILES FOUND</div>
+    <div class="subtle">Put .md files into the markdown folder, then reload this page.</div>
+  </div>
+  {% endif %}
+</section>
+<script src="{{ url_for('static', filename='js/markdown_list.js') }}"></script>
+{% endblock %}

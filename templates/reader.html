@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Reader{% endblock %}
+{% block main_class %}reader-main{% endblock %}
+{% block content %}
+<header class="hero">
+  <div>
+    <div class="eyebrow">READING MODE</div>
+    <h1>{{ book_name }}</h1>
+  </div>
+  <div class="hero-badges">
+    <button class="badge alt" id="delete-book-current" data-book-id="{{ book_id }}" data-book-name="{{ book_name }}">DELETE</button>
+    <a class="badge alt linklike" href="{{ url_for('books_page') }}">LIBRARY</a>
+  </div>
+</header>
+
+<section class="reader-panel">
+  <div class="reader-toolbar">
+    <button class="mini" id="font-smaller">A-</button>
+    <button class="mini alt" id="font-larger">A+</button>
+    <button class="mini blue" id="paper-theme">PAPER</button>
+    <button class="mini gold" id="dark-theme">DARK</button>
+  </div>
+
+  <article class="reader-surface paper-theme" id="reader-surface">
+    <h2 class="reader-book-title" id="reader-title">{{ book_name }}</h2>
+    <div class="reader-body" id="reader-body">Loading…</div>
+  </article>
+</section>
+
+<script>
+  window.__BOOK_ID__ = {{ book_id|tojson }};
+</script>
+<script src="{{ url_for('static', filename='js/reader.js') }}"></script>
+{% endblock %}

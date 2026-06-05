@@ -1,0 +1,5 @@
+{
+  "work_complete_sound": "/static/sounds/tales_from_the_crypt.mp3",
+  "break_complete_sound": "/static/sounds/dead_mans_party.mp3",
+  "use_beep_fallback": true
+}

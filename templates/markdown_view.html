@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Markdown Viewer<script src="{{ url_for('static', filename='js/markdown_view.js') }}"></script>
+{% endblock %}
+{% block main_class %}reader-main<script src="{{ url_for('static', filename='js/markdown_view.js') }}"></script>
+{% endblock %}
+{% block content %}
+<header class="hero">
+  <div>
+    <div class="eyebrow">MARKDOWN VIEW</div>
+    <h1>{{ doc_name }}</h1>
+  </div>
+  <div class="hero-badges">
+    <a class="badge alt linklike" href="{{ url_for('markdown_edit', doc_id=doc_id) }}">EDIT</a>
+    <div class="dropdown actions-dropdown">
+      <button class="badge blue dropdown-toggle actions-toggle" type="button">ACTIONS</button>
+      <div class="dropdown-menu actions-menu">
+        <div class="submenu">
+          <button class="dropdown-item submenu-toggle" type="button">THEME</button>
+          <div class="submenu-menu">
+            <button class="dropdown-item" id="md-theme-white" type="button">WHITE</button>
+            <button class="dropdown-item" id="md-theme-paper" type="button">PAPER</button>
+            <button class="dropdown-item" id="md-theme-dark" type="button">DARK</button>
+          </div>
+        </div>
+
+        <div class="submenu">
+          <button class="dropdown-item submenu-toggle" type="button">FONT</button>
+          <div class="submenu-menu">
+            <button class="dropdown-item" id="md-font-minus" type="button">A-</button>
+            <button class="dropdown-item" id="md-font-reset" type="button">A0</button>
+            <button class="dropdown-item" id="md-font-plus" type="button">A+</button>
+          </div>
+        </div>
+
+        <button class="dropdown-item" id="print-markdown" type="button">PRINT</button>
+        <button class="dropdown-item" id="rename-markdown-current" data-doc-id="{{ doc_id }}" data-doc-name="{{ doc_name }}" type="button">RENAME</button>
+        <button class="dropdown-item" id="delete-markdown-current" data-doc-id="{{ doc_id }}" data-doc-name="{{ doc_name }}" type="button">DELETE</button>
+      </div>
+    </div>
+    <a class="badge gold linklike" href="{{ url_for('markdown_page') }}">LIBRARY</a>
+  </div>
+</header>
+
+<section class="reader-panel">
+  <article class="markdown-surface markdown-theme-white" id="markdown-surface">
+    <div class="markdown-meta">{{ file_path }}</div>
+    <div class="markdown-body" id="markdown-body">{{ rendered|safe }}</div>
+  </article>
+</section>
+<script src="{{ url_for('static', filename='js/markdown_view.js') }}"></script>
+{% endblock %}

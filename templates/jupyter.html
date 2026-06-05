@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}LCARS Jupyter{% endblock %}
+{% block content %}
+<header class="hero">
+  <div>
+    <div class="eyebrow">JUPYTER LAUNCH PANEL</div>
+    <h1>ACTIVE JUPYTER SERVERS</h1>
+  </div>
+  <div class="hero-badges">
+    <button id="refresh-button" class="badge">REFRESH</button>
+    <a class="badge alt linklike" href="{{ url_for('api_jupyter_servers') }}">JSON</a>
+  </div>
+</header>
+
+<section class="panel">
+  <div class="panel-header">
+    <span>PORT</span>
+    <span class="subtle" id="server-count">{{ servers|length }} ACTIVE</span>
+  </div>
+
+  <div id="server-list" class="server-list">
+    {% if servers %}
+      {% for server in servers %}
+      <div class="server-card">
+        <div class="server-main">
+          <div class="launch-group">
+            <button class="lcars-port" data-url="{{ server.url }}">{{ server.port or "----" }}</button>
+            <button class="lcars-tab open-tab" data-url="{{ server.url }}">TAB</button>
+          </div>
+
+          <div class="server-meta">
+            <div class="server-name">{{ (server.label or server.root_dir or "UNKNOWN").rstrip("/").split("/")[-1].replace("_", " ").upper() }}</div>
+            <div class="server-badges">
+              {% if server.is_remote %}
+              <span class="server-badge remote">REMOTE</span>
+              <span class="server-badge {{ 'up' if server.remote_status == 'UP' else 'down' }}">{{ server.remote_status }}</span>
+              {% else %}
+              <span class="server-badge local">LOCAL</span>
+              {% endif %}
+            </div>
+            <div class="subtle">PID {{ server.pid or "?" }}</div>
+            <div class="server-url">{{ server.url }}</div>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="empty-state">
+        <div class="empty-title">NO JUPYTER SERVERS FOUND</div>
+        <div class="subtle">Start Jupyter Lab or Notebook, then refresh this page.</div>
+      </div>
+    {% endif %}
+  </div>
+</section>
+
+<script>
+  window.__INITIAL_JUPYTER_SERVERS__ = {{ servers|tojson }};
+</script>
+<script src="{{ url_for('static', filename='js/jupyter.js') }}"></script>
+{% endblock %}

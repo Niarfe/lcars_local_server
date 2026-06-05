@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{% block title %}LCARS Local{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/lcars.css') }}" />
+      <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}">
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="nav">
+        
+        <button id="sidebar-toggle" class="mini sidebar-toggle" type="button">SIDE</button>
+
+        <a class="brand-link" href="{{ url_for('dashboard') }}">
+          <div class="brand">LCARS</div>
+        </a>
+
+        <div id="primary-nav">
+          <a class="nav-pill {% if request.path == '/' %}active{% endif %}" href="{{ url_for('dashboard') }}">DASHBOARD</a>
+          <a class="nav-pill alt {% if request.path.startswith('/jupyter') %}active{% endif %}" href="{{ url_for('jupyter_page') }}">JUPYTER</a>
+          <a class="nav-pill blue {% if request.path.startswith('/books') or request.path.startswith('/reader') %}active{% endif %}" href="{{ url_for('books_page') }}">BOOKS</a>
+          <a class="nav-pill gold {% if request.path.startswith('/markdown') or request.path.startswith('/md/') %}active{% endif %}" href="{{ url_for('markdown_page') }}">MARKDOWN</a>
+          <a class="nav-pill {% if request.path.startswith('/tmux') %}active{% endif %}" href="{{ url_for('tmux_page') }}">TMUX</a>
+          <a class="nav-pill alt {% if request.path.startswith('/focus') %}active{% endif %}" href="{{ url_for('focus_page') }}">FOCUS</a>
+        </div>
+
+        <div id="markdown-doc-nav" class="hidden">
+          <a class="nav-pill gold" href="{{ url_for('markdown_new') }}">NEW MD</a>
+          <div id="markdown-doc-links" class="doc-nav-list"></div>
+        </div>
+      </aside>
+
+      <main class="main {% block main_class %}{% endblock %}">
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+      <script src="{{ url_for('static', filename='js/nav_toggle.js') }}"></script>
+  </body>
+</html>

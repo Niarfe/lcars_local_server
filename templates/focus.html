@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}LCARS Focus{% endblock %}
+{% block content %}
+<header class="hero">
+  <div>
+    <div class="eyebrow">FOCUS STATE MONITOR</div>
+    <h1>FOCUS TIMER</h1>
+  </div>
+  <div class="hero-badges">
+    <button class="badge" id="start-focus">START</button>
+    <button class="badge alt" id="pause-focus">PAUSE</button>
+    <button class="badge gold" id="reset-focus">RESET</button>
+  </div>
+</header>
+
+<section class="focus-grid">
+  <div class="panel focus-console focus-state-stopped">
+    <div class="focus-phase" id="focus-phase">READY</div>
+    <div class="focus-time" id="focus-time">10:00</div>
+    <div class="focus-subline" id="focus-subline">10 MIN FOCUS · 3 MIN BREAK</div>
+    <div class="focus-progress-shell"><div class="focus-progress" id="focus-progress"></div></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header"><span>PRESETS</span><span class="subtle">FOCUS / BREAK</span></div>
+    <div class="focus-presets">
+      <button class="action focus-preset" data-focus="10" data-break="3">10 / 3</button>
+      <button class="action alt focus-preset" data-focus="25" data-break="5">25 / 5</button>
+      <button class="action blue focus-preset" data-focus="50" data-break="10">50 / 10</button>
+    </div>
+
+    <div class="panel-header focus-custom-header"><span>CUSTOM</span><span class="subtle">MINUTES</span></div>
+    <div class="focus-custom">
+      <label><span class="subtle">FOCUS</span><input id="focus-minutes" class="new-md-input" type="number" min="1" value="10"></label>
+      <label><span class="subtle">BREAK</span><input id="break-minutes" class="new-md-input" type="number" min="1" value="3"></label>
+      <button class="action gold" id="apply-custom">APPLY</button>
+    </div>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-header"><span>TACTICAL NOTE</span><span class="subtle">COLOR STATE</span></div>
+  <div class="log-line">Blue means work. Green means break. Purple means done. Black means stopped. The timer stops at each boundary so you choose the next block.</div>
+</section>
+
+<script src="{{ url_for('static', filename='js/focus.js') }}"></script>
+{% endblock %}

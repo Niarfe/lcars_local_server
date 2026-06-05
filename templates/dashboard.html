@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}LCARS Dashboard{% endblock %}
+{% block content %}
+<header class="hero">
+  <div>
+    <div class="eyebrow">LOCAL CONTROL SURFACE</div>
+    <h1>LINK OPERATIONS</h1>
+  </div>
+  <div class="hero-badges"><div class="top-settings dropdown actions-dropdown">
+      <button class="badge blue dropdown-toggle actions-toggle" type="button">SETTINGS</button>
+      <div class="dropdown-menu actions-menu">
+        <div class="submenu">
+          <button class="dropdown-item submenu-toggle" type="button">SIZE</button>
+          <div class="submenu-menu">
+            <button class="dropdown-item ui-scale-option" data-scale="0.88" type="button">COMPACT</button>
+            <button class="dropdown-item ui-scale-option" data-scale="1" type="button">NORMAL</button>
+            <button class="dropdown-item ui-scale-option" data-scale="1.12" type="button">LARGE</button>
+          </div>
+        </div>
+      </div>
+    </div></div>
+</header>
+<section class="stats">
+  <div class="panel stat"><div class="label">CPU</div><div class="value">{{ status.cpu_percent }}%</div></div>
+  <div class="panel stat"><div class="label">MEMORY</div><div class="value">{{ status.memory_percent }}%</div></div>
+  <div class="panel stat"><div class="label">HOST</div><div class="value small">{{ status.system.hostname }}</div></div>
+</section>
+<section class="grid dashboard-grid-links-only">
+  <div class="panel">
+    <div class="panel-header"><span>LINK TREE</span><span class="subtle">LOCAL BOOKMARKS</span></div>
+    <div id="link-tree" class="link-tree"></div>
+  </div>
+  <div class="panel">
+    <div class="panel-header"><span>ADD LINK</span><span class="subtle">PATH / NAME / URL</span></div>
+    <div class="link-form">
+      <input id="link-path" class="new-md-input" type="text" placeholder="/UVA/DS6050" />
+      <input id="link-name" class="new-md-input" type="text" placeholder="github" />
+      <input id="link-url" class="new-md-input" type="url" placeholder="https://github.com/..." />
+      <button id="add-link" class="action">ADD LINK</button>
+      <div id="link-error" class="subtle"></div>
+    </div>
+  </div>
+</section>
+<section class="panel"><div class="panel-header"><span>LOG STREAM</span></div><div class="log-list">{% for line in logs %}<div class="log-line">{{ line }}</div>{% endfor %}</div></section>
+<script>window.__INITIAL_LINK_TREE__ = {{ link_tree|tojson }};</script>
+<script src="{{ url_for('static', filename='js/links.js') }}"></script>
+{% endblock %}

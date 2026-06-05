@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Markdown Edit{% endblock %}
+{% block main_class %}reader-main{% endblock %}
+{% block content %}
+<header class="hero">
+  <div>
+    <div class="eyebrow">MARKDOWN EDIT</div>
+    <h1>{{ doc_name }}</h1>
+  </div>
+  <div class="hero-badges">
+    <button class="badge" id="save-doc">SAVE</button>
+    <a class="badge alt linklike" href="{{ url_for('markdown_view', doc_id=doc_id) }}">CANCEL</a>
+  </div>
+</header>
+
+<section class="reader-panel">
+  <div class="markdown-meta">{{ file_path }} · EDITOR EXPANDS WIDE FOR TABLES</div>
+  <textarea class="markdown-editor" id="markdown-editor">{{ source_text }}</textarea>
+</section>
+
+<script>
+  window.__MARKDOWN_DOC_ID__ = {{ doc_id|tojson }};
+</script>
+<script src="{{ url_for('static', filename='js/markdown_edit.js') }}"></script>
+{% endblock %}

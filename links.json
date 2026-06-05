@@ -1,0 +1,60 @@
+{
+  "UVA_5111": {
+    "ADMIN": {
+      "Outlook": "https://outlook.cloud.microsoft/mail/",
+      "TEAMS": "https://teams.microsoft.com/v2/",
+      "OUTLOOOK": "https://outlook.cloud.microsoft/mail/inbox/id/AAQkADA4MDU5N2RjLTY3ZTgtNDU2OC1iZTI3LTY5NWI4M2RiYmZiMgAQACXQR%2FnTZgFDhOtDdZY1cMM%3D",
+      "WORKDAY": "https://www.myworkday.com/uva/d/inst/13102!CK5mGhEKBggDEMenAhIHCgUI1A0QKRq-AQoGCAMQgawCErQBEjoI22gaCgoGCAMQp7EBEgAaEQoGCAMQ-qsCEgcKBQjjGRAvGgoKBggDEP_rAhIAGgoKBggDEICsAhIAEjoI22gaCgoGCAMQp7EBEgAaEQoGCAMQ-qsCEgcKBQjjGRASGgoKBggDEP_rAhIAGgoKBggDEICsAhIAEjoI22gSCQoFCAQQ0HYSABoSCgYIAxD_qwISCAoGCOMZEJECGgoKBggDEP_rAhIAGgoKBggDEICsAhIA*rCN_wcgpPIU~/cacheable-task/2997$2151.htmld",
+      "Trello": "https://trello.com/b/TkJxEO42/course-refresh-board?filter=member:efrainolivares3"
+    },
+    "CANVAS": {
+      "Su26": "https://canvas.its.virginia.edu/courses/190663/pages/ds-5111-home",
+      "FA25": "https://canvas.its.virginia.edu/courses/159406"
+    },
+    "GITHUB": {
+      "MAIN_HUB": "https://github.com/Niarfe/private_uva_ds5111",
+      "REPO 25 FALL": "https://github.com/EfrainOlivaresUVA/2508_DS5111_materials/tree/main/slides",
+      "REPO 26 SUMMER": "https://github.com/EfrainOlivaresUVA/2605_DS5111_materials"
+    },
+    "TOOLS": {
+      "automating teams enrollment": "https://canvas.its.virginia.edu/courses/154296/pages/automating-teams-enrollment-in-canvas?module_item_id=2093674",
+      "UVA GEMINI ACCESS": "https://virginia.service-now.com/its?id=itsweb_kb_article&sys_id=33df183d47b33258bb2b9c7b116d43bd#access"
+    },
+    "WEBSHARE PROXY": "https://dashboard.webshare.io/13452432/settings",
+    "SHEETS": {
+      "SU26_SYLLABUS": "https://docs.google.com/spreadsheets/d/1MhYfmd_oZIDPH5MrcfOq2QYdjJ9hl4m1oPOIO9o70dc/edit?gid=0#gid=0"
+    }
+  },
+  "NEWS": {
+    "example": "https://example.com/"
+  },
+  "TRADING_TOOLS": {
+    "TradingView": "https://www.tradingview.com/chart/oxgeoSam/"
+  },
+  "TRADING_BROKERS": {
+    "Alpaca": "https://app.alpaca.markets/dashboard/overview",
+    "Robinhood": "https://robinhood.com/legend/layout/6fa931e6-a9de-40aa-b5e9-59e2bafab4a8?default_web_client=WEB_CLIENT_PREFERENCE_BLACK_WIDOW_DEFAULT"
+  },
+  "UVA_5002": {
+    "Easy_edit": "https://github.com/bryanchrist/EasyEdit_bc",
+    "CANVAS": "https://canvas.its.virginia.edu/courses/190670",
+    "GPU AWS SETUP": "https://github.com/Niarfe/aws_gpu_server_setup/tree/main"
+  },
+  "FUN-PROJECTS_GEMINI": {
+    "FunProjectSheet": "https://docs.google.com/spreadsheets/d/16jS_gx2SDpRGizyG3lzZQbD2El7nlbL_fHR9DBLhKWA/edit?gid=1471332399#gid=1471332399"
+  },
+  "UVA_6015": {
+    "CAPSTONE REPO": "https://github.com/Niarfe/DS6015_capstone",
+    "TAKESELFASSESMENT": "https://metyfoundation.org/"
+  },
+  "YOUTUBE_FUN_PROGRAMMING": {
+    "BUILD A 24-7 OPENCLAW": "https://www.youtube.com/watch?v=ehfTs0wdW5g",
+    "AI_MAGAZINE": "https://aaai.org/ai-magazine/"
+  },
+  "UVA_6002": {
+    "CANVAS_ETHICS": "https://canvas.its.virginia.edu/courses/190749"
+  },
+  "GEMINI": {
+    "GEM_VEGAS": "https://gemini.google.com/gem/d0050d118452"
+  }
+}

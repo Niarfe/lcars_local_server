@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}New Markdown{% endblock %}
+{% block content %}
+<header class="hero">
+  <div>
+    <div class="eyebrow">MARKDOWN CREATE</div>
+    <h1>NEW DOCUMENT</h1>
+  </div>
+  <div class="hero-badges">
+    <a class="badge alt linklike" href="{{ url_for('markdown_page') }}">CANCEL</a>
+  </div>
+</header>
+
+<section class="panel">
+  <div class="panel-header">
+    <span>TITLE</span>
+    <span class="subtle">CREATES .MD FILE</span>
+  </div>
+
+  <div class="new-md-form">
+    <input id="new-md-title" class="new-md-input" type="text" placeholder="Example: meeting notes" autofocus />
+    <button id="create-md" class="action">CREATE MARKDOWN FILE</button>
+    <div id="new-md-error" class="subtle"></div>
+  </div>
+</section>
+
+<script src="{{ url_for('static', filename='js/markdown_new.js') }}"></script>
+{% endblock %}

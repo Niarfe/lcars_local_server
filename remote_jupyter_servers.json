@@ -1,0 +1,9 @@
+[
+  {
+    "name": "Example Remote",
+    "host": "127.0.0.1",
+    "port": 8888,
+    "protocol": "http",
+    "label": "6015 CUDA on us-west-2"
+  }
+]

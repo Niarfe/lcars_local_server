@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}LCARS Books{% endblock %}
+{% block content %}
+<header class="hero">
+  <div>
+    <div class="eyebrow">LOCAL READING LIBRARY</div>
+    <h1>BOOK SHELF</h1>
+  </div>
+  <div class="hero-badges"><div class="badge blue">{{ books|length }} BOOKS</div></div>
+</header>
+<section class="panel">
+  <div class="panel-header"><span>AVAILABLE TEXTS</span><span class="subtle">.TXT</span></div>
+  {% if books %}
+  <div class="book-list" id="book-list">
+    {% for book in books %}
+    <div class="book-row book-file-row">
+      <a class="book-row-main" href="{{ url_for('reader_page', book_id=book.id) }}">
+        <div class="book-title">{{ book.name }}</div>
+        <div class="subtle">{{ book.path }}</div>
+      </a>
+      <button class="mini alt delete-book" data-book-id="{{ book.id }}" data-book-name="{{ book.name }}">DELETE</button>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state"><div class="empty-title">NO BOOKS FOUND</div><div class="subtle">Put UTF-8 .txt files into the books folder, then reload this page.</div></div>
+  {% endif %}
+</section>
+<script src="{{ url_for('static', filename='js/books.js') }}"></script>
+{% endblock %}
