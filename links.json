@@ -56,5 +56,8 @@
   },
   "GEMINI": {
     "GEM_VEGAS": "https://gemini.google.com/gem/d0050d118452"
+  },
+  "AWS": {
+    "INSTANCES US-WEST-2": "https://us-west-2.console.aws.amazon.com/ec2/home?region=us-west-2#Instances:"
   }
 }

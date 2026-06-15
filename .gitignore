@@ -222,3 +222,4 @@ books
 **/*.bak
 **/*.mp3
 **/*.DS_Store
+**/*.zip

@@ -3,9 +3,24 @@
   const rows = Array.from(document.querySelectorAll(".markdown-doc-row"));
   const FILTER_KEY = "lcars-markdown-filter";
 
+  function getFolderContext(query) {
+    const value = (query || "").trim();
+    if (!value.endsWith("/")) return "";
+    return value.split("/").filter(Boolean)[0] || "";
+  }
+
+  function updateNewDocumentLink(query) {
+    const link = document.getElementById("new-markdown-context-link");
+    if (!link) return;
+    const folder = getFolderContext(query);
+    link.href = folder ? `/md/new?folder=${encodeURIComponent(folder)}` : "/md/new";
+    link.textContent = folder ? `NEW ${folder.toUpperCase()} DOC` : "NEW DOCUMENT";
+  }
+
   function applyFilter() {
     const query = (filterInput.value || "").trim().toLowerCase();
     localStorage.setItem(FILTER_KEY, query);
+    updateNewDocumentLink(query);
 
     rows.forEach((row) => {
       const name = row.dataset.name || "";
@@ -71,6 +86,14 @@
       button.textContent = "DELETE";
     }
   }
+
+  document.querySelectorAll(".markdown-folder-filter").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (!filterInput) return;
+      filterInput.value = button.dataset.filter || "";
+      applyFilter();
+    });
+  });
 
   if (filterInput) {
     filterInput.value = localStorage.getItem(FILTER_KEY) || "";

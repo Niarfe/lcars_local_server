@@ -7,7 +7,7 @@
     <h1>MARKDOWN DOCS</h1>
   </div>
   <div class="hero-badges">
-    <a class="badge linklike" href="{{ url_for('markdown_new') }}">NEW DOCUMENT</a>
+    <a class="badge linklike" id="new-markdown-context-link" href="{{ url_for('markdown_new') }}">NEW DOCUMENT</a>
     <div class="badge gold">{{ docs|length }} DOCS</div>
   </div>
 </header>
@@ -17,6 +17,16 @@
     <span>AVAILABLE DOCUMENTS</span>
     <span class="subtle">.MD</span>
   </div>
+  <div class="markdown-folder-contexts">
+    <button class="mini markdown-folder-filter" data-filter="">ALL</button>
+    {% for folder in markdown_folders %}
+    <button class="mini alt markdown-folder-filter" data-filter="{{ folder }}/">{{ folder|upper }}</button>
+    {% endfor %}
+    {% if not markdown_folders %}
+    <span class="subtle">No folder contexts yet. Create folders under <code>markdown/</code>.</span>
+    {% endif %}
+  </div>
+
   <input id="markdown-filter" class="library-filter" type="text" placeholder="FILTER PREFIX OR TEXT, E.G. 6050" />
   {% if docs %}
   <div class="book-list" id="markdown-doc-list">

@@ -11,15 +11,68 @@ from typing import Any
 
 import markdown as mdlib
 import psutil
+
+try:
+    import boto3
+except ImportError:
+    boto3 = None
 from flask import Flask, abort, jsonify, render_template, request
 from jupyter_server.serverapp import list_running_servers
 
 app = Flask(__name__)
 BASE_DIR = Path.home()
 APP_DIR = Path(__file__).parent
+CONTENT_CONFIG_PATH = APP_DIR / "content_config.json"
+AWS_CONFIG_PATH = APP_DIR / "aws_servers.json"
 REMOTE_CONFIG_PATH = APP_DIR / "remote_jupyter_servers.json"
-BOOKS_DIR = APP_DIR / "books"
-MARKDOWN_DIR = APP_DIR / "markdown"
+def expand_content_path(raw_path: str | Path, fallback: Path) -> Path:
+    if not raw_path:
+        return fallback
+    raw_text = str(raw_path).strip()
+    if not raw_text:
+        return fallback
+    return Path(raw_text).expanduser().resolve()
+
+
+def load_content_config() -> dict[str, str]:
+    default_config = {
+        "markdown_dir": str(APP_DIR / "markdown"),
+        "books_dir": str(APP_DIR / "books"),
+        "sounds_dir": str(APP_DIR / "static" / "sounds"),
+    }
+
+    if not CONTENT_CONFIG_PATH.exists():
+        CONTENT_CONFIG_PATH.write_text(json.dumps(default_config, indent=2), encoding="utf-8")
+        return default_config
+
+    try:
+        raw = json.loads(CONTENT_CONFIG_PATH.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return default_config
+
+    if not isinstance(raw, dict):
+        return default_config
+
+    return {
+        "markdown_dir": str(raw.get("markdown_dir") or default_config["markdown_dir"]),
+        "books_dir": str(raw.get("books_dir") or default_config["books_dir"]),
+        "sounds_dir": str(raw.get("sounds_dir") or default_config["sounds_dir"]),
+    }
+
+
+CONTENT_CONFIG = load_content_config()
+BOOKS_DIR = expand_content_path(CONTENT_CONFIG.get("books_dir", ""), APP_DIR / "books")
+MARKDOWN_DIR = expand_content_path(CONTENT_CONFIG.get("markdown_dir", ""), APP_DIR / "markdown")
+SOUNDS_DIR = expand_content_path(CONTENT_CONFIG.get("sounds_dir", ""), APP_DIR / "static" / "sounds")
+
+
+def ensure_content_dirs() -> None:
+    MARKDOWN_DIR.mkdir(parents=True, exist_ok=True)
+    BOOKS_DIR.mkdir(parents=True, exist_ok=True)
+    SOUNDS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+ensure_content_dirs()
 LINKS_CONFIG_PATH = APP_DIR / "links.json"
 FOCUS_CONFIG_PATH = APP_DIR / "focus_config.json"
 
@@ -303,6 +356,39 @@ def markdown_slug_from_title(title: str) -> str:
     cleaned = cleaned.strip("_")
     return cleaned or "untitled"
 
+
+def unique_markdown_path_from_rel(raw_name: str) -> Path:
+    """Create a safe unique Markdown path, allowing folder segments."""
+    cleaned = raw_name.strip().replace("\\", "/")
+    if cleaned.lower().endswith(".md"):
+        cleaned = cleaned[:-3]
+    parts = [part for part in cleaned.split("/") if part.strip()]
+    if not parts:
+        parts = ["untitled"]
+
+    folder_parts = [markdown_slug_from_title(part) for part in parts[:-1]]
+    filename = markdown_slug_from_title(parts[-1]) + ".md"
+
+    base_dir = MARKDOWN_DIR.joinpath(*folder_parts).resolve() if folder_parts else MARKDOWN_DIR.resolve()
+    if not str(base_dir).startswith(str(MARKDOWN_DIR.resolve())):
+        raise ValueError("Invalid markdown path")
+
+    base_dir.mkdir(parents=True, exist_ok=True)
+    candidate = base_dir / filename
+
+    if not candidate.exists():
+        return candidate
+
+    stem = candidate.stem
+    suffix = candidate.suffix
+    for idx in range(2, 1000):
+        next_candidate = candidate.with_name(f"{stem}_{idx}{suffix}")
+        if not next_candidate.exists():
+            return next_candidate
+
+    raise ValueError("Could not create unique markdown filename")
+
+
 def unique_markdown_path(title: str) -> Path:
     slug = markdown_slug_from_title(title)
     candidate = MARKDOWN_DIR / f"{slug}.md"
@@ -333,6 +419,215 @@ def load_focus_config() -> dict[str, Any]:
         return default_config
 
     return {**default_config, **raw}
+
+
+
+def get_markdown_folders() -> list[str]:
+    MARKDOWN_DIR.mkdir(exist_ok=True)
+    folders: set[str] = set()
+    for p in MARKDOWN_DIR.rglob("*.md"):
+        rel = p.relative_to(MARKDOWN_DIR).as_posix()
+        parts = rel.split("/")
+        if len(parts) > 1 and parts[0]:
+            folders.add(parts[0])
+    return sorted(folders, key=lambda x: x.lower())
+
+
+def get_lcars_lab_status() -> dict[str, Any]:
+    session_name = "lcars_lab"
+    tmux_running = False
+    try:
+        completed = subprocess.run(["tmux", "has-session", "-t", session_name], capture_output=True, text=True, timeout=3, check=False)
+        tmux_running = completed.returncode == 0
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        tmux_running = False
+
+    matching_server: dict[str, Any] | None = None
+    app_dir_text = str(APP_DIR.resolve())
+
+    try:
+        servers = list(list_running_servers())
+    except Exception:
+        servers = []
+
+    for server in servers:
+        root_dir = str(server.get("root_dir") or server.get("notebook_dir") or "")
+        if root_dir and (root_dir == app_dir_text or root_dir.startswith(app_dir_text)):
+            matching_server = {
+                "url": server.get("url", ""),
+                "token": server.get("token", ""),
+                "root_dir": root_dir,
+                "port": server.get("port", ""),
+            }
+            break
+
+    if matching_server:
+        url = matching_server.get("url", "")
+        token = matching_server.get("token", "")
+        if token and "token=" not in url:
+            sep = "&" if "?" in url else "?"
+            url = f"{url}{sep}token={token}"
+        matching_server["open_url"] = url
+
+    return {
+        "session": session_name,
+        "tmux_running": tmux_running,
+        "jupyter_running": matching_server is not None,
+        "server": matching_server,
+        "app_dir": app_dir_text,
+        "status": "UP" if matching_server else ("STARTING" if tmux_running else "DOWN"),
+    }
+
+
+def start_lcars_lab() -> tuple[bool, str]:
+    session_name = "lcars_lab"
+    status = get_lcars_lab_status()
+    if status.get("tmux_running"):
+        return True, "tmux session already exists"
+
+    try:
+        completed = subprocess.run(
+            ["tmux", "new-session", "-d", "-s", session_name, "-c", str(APP_DIR.resolve()), "make up"],
+            capture_output=True, text=True, timeout=8, check=False
+        )
+    except FileNotFoundError:
+        return False, "tmux is not installed or not on PATH"
+    except subprocess.TimeoutExpired:
+        return False, "tmux start timed out"
+
+    if completed.returncode != 0:
+        detail = completed.stderr.strip() or completed.stdout.strip() or "tmux start failed"
+        return False, detail
+
+    return True, "started lcars_lab"
+
+
+
+
+def load_aws_servers() -> list[dict[str, Any]]:
+    default_config = {
+        "servers": [
+            {
+                "name": "GPU SERVER",
+                "region": "us-east-1",
+                "instance_id": "i-xxxxxxxxxxxxxxxxx",
+                "jupyter_url": "http://YOUR_ELASTIC_IP:8888",
+                "ssh_hint": "ssh ubuntu@YOUR_ELASTIC_IP",
+                "enabled": False
+            }
+        ]
+    }
+
+    if not AWS_CONFIG_PATH.exists():
+        AWS_CONFIG_PATH.write_text(json.dumps(default_config, indent=2), encoding="utf-8")
+        return []
+
+    try:
+        raw = json.loads(AWS_CONFIG_PATH.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return []
+
+    servers = raw.get("servers", []) if isinstance(raw, dict) else []
+    cleaned: list[dict[str, Any]] = []
+
+    for item in servers:
+        if not isinstance(item, dict):
+            continue
+        if item.get("enabled") is False:
+            continue
+
+        region = str(item.get("region") or "").strip()
+        instance_id = str(item.get("instance_id") or "").strip()
+        if not region or not instance_id:
+            continue
+
+        cleaned.append({
+            "name": str(item.get("name") or "AWS SERVER"),
+            "region": region,
+            "instance_id": instance_id,
+            "jupyter_url": str(item.get("jupyter_url") or ""),
+            "ssh_hint": str(item.get("ssh_hint") or ""),
+            "notes": str(item.get("notes") or ""),
+        })
+
+    return cleaned
+
+
+def aws_server_by_instance(instance_id: str) -> dict[str, Any] | None:
+    for server in load_aws_servers():
+        if server.get("instance_id") == instance_id:
+            return server
+    return None
+
+
+def aws_ec2_client(region: str) -> Any:
+    if boto3 is None:
+        raise RuntimeError("boto3 is not installed. Run: pip install boto3")
+    return boto3.client("ec2", region_name=region)
+
+
+def get_aws_instance_status(server: dict[str, Any]) -> dict[str, Any]:
+    base = {
+        **server,
+        "state": "UNKNOWN",
+        "state_code": None,
+        "public_ip": "",
+        "private_ip": "",
+        "launch_time": "",
+        "error": "",
+    }
+
+    try:
+        ec2 = aws_ec2_client(str(server["region"]))
+        response = ec2.describe_instances(InstanceIds=[server["instance_id"]])
+        reservations = response.get("Reservations", [])
+        instances = reservations[0].get("Instances", []) if reservations else []
+        instance = instances[0] if instances else None
+
+        if not instance:
+            base["error"] = "Instance not found"
+            return base
+
+        state = instance.get("State", {})
+        launch_time = instance.get("LaunchTime")
+
+        base.update({
+            "state": str(state.get("Name") or "UNKNOWN").upper(),
+            "state_code": state.get("Code"),
+            "public_ip": str(instance.get("PublicIpAddress") or ""),
+            "private_ip": str(instance.get("PrivateIpAddress") or ""),
+            "launch_time": launch_time.isoformat() if launch_time else "",
+        })
+        return base
+    except Exception as exc:
+        base["error"] = str(exc)
+        return base
+
+
+def get_aws_statuses() -> list[dict[str, Any]]:
+    return [get_aws_instance_status(server) for server in load_aws_servers()]
+
+
+def aws_instance_action(instance_id: str, action: str) -> tuple[bool, str, dict[str, Any] | None]:
+    server = aws_server_by_instance(instance_id)
+    if not server:
+        return False, "Instance is not configured/enabled in aws_servers.json", None
+
+    try:
+        ec2 = aws_ec2_client(str(server["region"]))
+        if action == "start":
+            ec2.start_instances(InstanceIds=[instance_id])
+            message = "Start requested"
+        elif action == "stop":
+            ec2.stop_instances(InstanceIds=[instance_id])
+            message = "Stop requested"
+        else:
+            return False, "Invalid AWS action", None
+
+        return True, message, get_aws_instance_status(server)
+    except Exception as exc:
+        return False, str(exc), get_aws_instance_status(server)
+
 
 
 @app.get("/")
@@ -372,7 +667,11 @@ def reader_page(book_id: str) -> str:
 
 @app.get("/markdown")
 def markdown_page() -> str:
-    return render_template("markdown_list.html", docs=get_markdown_docs())
+    return render_template(
+        "markdown_list.html",
+        docs=get_markdown_docs(),
+        markdown_folders=get_markdown_folders(),
+    )
 
 @app.get("/md/view/<path:doc_id>")
 def markdown_view(doc_id: str) -> str:
@@ -430,9 +729,19 @@ def api_markdown_create() -> Any:
     if not isinstance(title, str) or not title.strip():
         return jsonify({"ok": False, "error": "Title is required"}), 400
 
+    folder = payload.get("folder", "")
+    if not isinstance(folder, str):
+        folder = ""
+
+    raw_title = title.strip()
+    if folder.strip() and "/" not in raw_title:
+        raw_path = f"{folder.strip().strip('/')}/{raw_title}"
+    else:
+        raw_path = raw_title
+
     MARKDOWN_DIR.mkdir(exist_ok=True)
-    path = unique_markdown_path(title)
-    heading = title.strip()
+    path = unique_markdown_path_from_rel(raw_path)
+    heading = title.strip().split("/")[-1].strip()
     path.write_text(f"# {heading}\n\n", encoding="utf-8")
 
     return jsonify({
@@ -526,6 +835,64 @@ def api_markdown_rename(doc_id: str) -> Any:
         "id": new_id,
         "url": f"/md/view/{new_id}",
     })
+
+
+
+@app.get("/api/lcars-lab/status")
+def api_lcars_lab_status() -> Any:
+    return jsonify({"ok": True, "lab": get_lcars_lab_status()})
+
+
+@app.post("/api/lcars-lab/start")
+def api_lcars_lab_start() -> Any:
+    ok, message = start_lcars_lab()
+    status = get_lcars_lab_status()
+    http_status = 200 if ok else 500
+    return jsonify({"ok": ok, "message": message, "lab": status}), http_status
+
+
+@app.get("/api/content/config")
+def api_content_config() -> Any:
+    return jsonify({
+        "ok": True,
+        "content": {
+            "markdown_dir": str(MARKDOWN_DIR),
+            "books_dir": str(BOOKS_DIR),
+            "sounds_dir": str(SOUNDS_DIR),
+            "config_path": str(CONTENT_CONFIG_PATH),
+            "markdown_exists": MARKDOWN_DIR.exists(),
+            "books_exists": BOOKS_DIR.exists(),
+            "sounds_exists": SOUNDS_DIR.exists(),
+        }
+    })
+
+
+
+@app.get("/aws")
+def aws_page() -> str:
+    return render_template("aws.html")
+
+
+@app.get("/api/aws/instances")
+def api_aws_instances() -> Any:
+    return jsonify({
+        "ok": True,
+        "instances": get_aws_statuses(),
+        "config_path": str(AWS_CONFIG_PATH),
+        "boto3_available": boto3 is not None,
+    })
+
+
+@app.post("/api/aws/instances/<instance_id>/start")
+def api_aws_instance_start(instance_id: str) -> Any:
+    ok, message, status = aws_instance_action(instance_id, "start")
+    return jsonify({"ok": ok, "message": message, "instance": status}), 200 if ok else 400
+
+
+@app.post("/api/aws/instances/<instance_id>/stop")
+def api_aws_instance_stop(instance_id: str) -> Any:
+    ok, message, status = aws_instance_action(instance_id, "stop")
+    return jsonify({"ok": ok, "message": message, "instance": status}), 200 if ok else 400
 
 
 @app.get("/api/status")
@@ -662,4 +1029,4 @@ def reveal() -> Any:
     )
 
 if __name__ == "__main__":
-    app.run(host="127.0.0.1", port=5000, debug=True)
+    app.run(host="127.0.0.1", port=5050, debug=True)

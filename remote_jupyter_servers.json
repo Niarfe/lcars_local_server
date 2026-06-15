@@ -1,9 +1,9 @@
 [
   {
-    "name": "Example Remote",
-    "host": "127.0.0.1",
-    "port": 8888,
+    "name": "awsgpu",
+    "host": "35.95.187.165",
+    "port": 8891,
     "protocol": "http",
-    "label": "6015 CUDA on us-west-2"
+    "label": "5002 CUDA"
   }
 ]

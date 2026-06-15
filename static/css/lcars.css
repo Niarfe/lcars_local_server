@@ -1120,3 +1120,171 @@ body {
 .hero-badges .submenu-menu {
   right: calc(100% + 8px);
 }
+
+/* v24 local lab + markdown folder contexts */
+.markdown-folder-contexts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.markdown-folder-filter {
+  text-transform: uppercase;
+}
+
+.lcars-lab-panel {
+  margin-bottom: 16px;
+}
+
+.lab-grid {
+  display: grid;
+  grid-template-columns: 1fr 0.35fr 0.25fr;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  word-break: break-word;
+  color: var(--text);
+}
+
+.lab-actions {
+  margin-bottom: 12px;
+}
+
+.disabled-link {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.status-up {
+  color: #7ddc8b !important;
+}
+
+.status-down {
+  color: #ff8a8a !important;
+}
+
+.status-starting {
+  color: var(--gold) !important;
+}
+
+@media (max-width: 900px) {
+  .lab-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+
+/* v24c context-aware markdown creation */
+#markdown-folder-context {
+  margin-bottom: 8px;
+  color: var(--gold);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+
+/* v24d markdown context fix */
+.markdown-folder-contexts {
+  align-items: center;
+}
+
+.markdown-folder-contexts .mini,
+.markdown-folder-filter {
+  font-size: 0.78rem !important;
+  line-height: 1 !important;
+  padding: 8px 13px !important;
+  min-height: 0 !important;
+  border-radius: 999px !important;
+}
+
+
+/* v24e markdown create id fix */
+#markdown-folder-context {
+  margin-bottom: 8px;
+  color: var(--gold);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+/* v26 AWS server control */
+.aws-warning {
+  background: rgba(255, 138, 138, 0.12);
+  border: 1px solid rgba(255, 138, 138, 0.35);
+  border-radius: 18px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  color: #ffb3b3;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.aws-instance-list {
+  display: grid;
+  gap: 14px;
+}
+
+.aws-card {
+  background: rgba(255,255,255,0.035);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 24px;
+  padding: 16px;
+}
+
+.aws-card-main {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.aws-name {
+  font-size: 1.3rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  color: var(--orange);
+}
+
+.aws-state {
+  font-size: 1.1rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+}
+
+.aws-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.aws-actions {
+  margin-top: 10px;
+}
+
+.aws-error {
+  color: #ff8a8a;
+  font-weight: 800;
+  margin: 10px 0;
+}
+
+.ssh-hint {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(0,0,0,0.22);
+}
+
+@media (max-width: 900px) {
+  .aws-grid {
+    grid-template-columns: 1fr;
+  }
+  .aws-card-main {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

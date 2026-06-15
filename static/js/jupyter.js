@@ -130,3 +130,78 @@
     refreshButton.addEventListener("click", refreshServers);
   }
 })();
+
+(function () {
+  const statusEl = document.getElementById("lcars-lab-status");
+  const rootEl = document.getElementById("lcars-lab-root");
+  const tmuxEl = document.getElementById("lcars-lab-tmux");
+  const portEl = document.getElementById("lcars-lab-port");
+  const msgEl = document.getElementById("lcars-lab-message");
+  const startBtn = document.getElementById("lcars-lab-start");
+  const openLink = document.getElementById("lcars-lab-open");
+  const refreshBtn = document.getElementById("lcars-lab-refresh");
+
+  if (!statusEl) return;
+
+  function setMessage(text) {
+    if (msgEl) msgEl.textContent = text;
+  }
+
+  function applyStatus(lab) {
+    statusEl.textContent = lab.status || "UNKNOWN";
+    statusEl.classList.toggle("status-up", lab.status === "UP");
+    statusEl.classList.toggle("status-down", lab.status === "DOWN");
+    statusEl.classList.toggle("status-starting", lab.status === "STARTING");
+
+    if (rootEl) rootEl.textContent = lab.app_dir || "-";
+    if (tmuxEl) tmuxEl.textContent = lab.tmux_running ? lab.session : "DOWN";
+    if (portEl) portEl.textContent = lab.server && lab.server.port ? lab.server.port : "-";
+
+    const openUrl = lab.server && lab.server.open_url ? lab.server.open_url : "";
+    if (openLink) {
+      if (openUrl) {
+        openLink.href = openUrl;
+        openLink.classList.remove("disabled-link");
+      } else {
+        openLink.href = "#";
+        openLink.classList.add("disabled-link");
+      }
+    }
+  }
+
+  async function refreshLab() {
+    try {
+      const response = await fetch("/api/lcars-lab/status");
+      const data = await response.json();
+      if (data.ok) applyStatus(data.lab || {});
+    } catch (error) {
+      statusEl.textContent = "ERROR";
+      setMessage(error.message || "Status check failed");
+    }
+  }
+
+  async function startLab() {
+    if (!startBtn) return;
+    startBtn.disabled = true;
+    startBtn.textContent = "STARTING";
+    setMessage("Starting lcars_lab tmux session...");
+
+    try {
+      const response = await fetch("/api/lcars-lab/start", { method: "POST" });
+      const data = await response.json();
+      setMessage(data.message || (data.ok ? "Started" : "Start failed"));
+      if (data.lab) applyStatus(data.lab);
+      setTimeout(refreshLab, 2000);
+      setTimeout(refreshLab, 5000);
+    } catch (error) {
+      setMessage(error.message || "Start failed");
+    } finally {
+      startBtn.disabled = false;
+      startBtn.textContent = "START";
+    }
+  }
+
+  if (startBtn) startBtn.addEventListener("click", startLab);
+  if (refreshBtn) refreshBtn.addEventListener("click", refreshLab);
+  refreshLab();
+})();

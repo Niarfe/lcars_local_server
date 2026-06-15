@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}LCARS AWS{% endblock %}
+{% block content %}
+<header class="hero">
+  <div>
+    <div class="eyebrow">COST CONTROL</div>
+    <h1>AWS SERVERS</h1>
+  </div>
+  <div class="hero-badges">
+    <button class="badge blue" id="aws-refresh" type="button">REFRESH</button>
+  </div>
+</header>
+
+<section class="panel">
+  <div class="panel-header">
+    <span>EC2 INSTANCE CONTROL</span>
+    <span class="subtle" id="aws-config-path">CONFIG</span>
+  </div>
+
+  <div class="aws-warning">
+    These controls can start or stop paid AWS instances. Only configured instance IDs are available.
+  </div>
+
+  <div id="aws-instance-list" class="aws-instance-list">
+    <div class="empty-state">
+      <div class="empty-title">CHECKING AWS</div>
+      <div class="subtle">Loading configured EC2 instances...</div>
+    </div>
+  </div>
+
+  <div class="subtle" id="aws-message"></div>
+</section>
+
+<script src="{{ url_for('static', filename='js/aws.js') }}"></script>
+{% endblock %}

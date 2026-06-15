@@ -1,0 +1,22 @@
+{
+  "servers": [
+    {
+      "name": "CUDA SERVER",
+      "region": "us-west-2",
+      "instance_id": "i-0f3b50278768d9494",
+      "jupyter_url": "http://35.95.187.165:8888",
+      "ssh_hint": "ssh ubuntu@awsgpu",
+      "notes": "Set enabled true after editing instance_id and region.",
+      "enabled": true 
+    },
+    {
+      "name": "CPU SERVER",
+      "region": "us-west-2",
+      "instance_id": "i-05466f0a1e7ed0b0b",
+      "jupyter_url": "http://52.89.235.82:8889",
+      "ssh_hint": "ssh ubuntu@awscpu",
+      "notes": "Set enabled true after editing instance_id and region.",
+      "enabled": true 
+    }
+  ]
+}

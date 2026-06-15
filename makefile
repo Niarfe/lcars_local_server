@@ -10,3 +10,6 @@ unpack:
 
 up:
 	. ~/.efenv/bin/activate; python app.py
+
+jup:
+	. ~/.efenv/bin/activate; jupyter lab --port=8890

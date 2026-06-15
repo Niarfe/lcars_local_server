@@ -12,6 +12,39 @@
   </div>
 </header>
 
+
+
+<section class="panel lcars-lab-panel">
+  <div class="panel-header">
+    <span>LOCAL LCARS LAB</span>
+    <span class="subtle" id="lcars-lab-status">CHECKING</span>
+  </div>
+
+  <div class="lab-grid">
+    <div>
+      <div class="label">ROOT</div>
+      <div class="mono" id="lcars-lab-root">-</div>
+    </div>
+    <div>
+      <div class="label">TMUX</div>
+      <div class="mono" id="lcars-lab-tmux">-</div>
+    </div>
+    <div>
+      <div class="label">PORT</div>
+      <div class="mono" id="lcars-lab-port">-</div>
+    </div>
+  </div>
+
+  <div class="action-list lab-actions">
+    <button class="action" id="lcars-lab-start" type="button">START</button>
+    <a class="action alt disabled-link" id="lcars-lab-open" href="#" target="_blank" rel="noopener noreferrer">OPEN</a>
+    <button class="action blue" id="lcars-lab-refresh" type="button">REFRESH</button>
+  </div>
+
+  <div class="subtle" id="lcars-lab-message">
+    Starts tmux session lcars_lab in the LCARS root and runs make up.
+  </div>
+</section>
 <section class="panel">
   <div class="panel-header">
     <span>PORT</span>

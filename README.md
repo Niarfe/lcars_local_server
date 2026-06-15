@@ -158,3 +158,75 @@ Put `.md` files into the `markdown/` folder.
 
 - Bugfix: replaced the actual FLASK / MONOLITH hero badges with SETTINGS.
 - SETTINGS contains Size -> Compact / Normal / Large.
+
+## v24
+
+- Added Local LCARS Lab Quick Start on the Jupyter page.
+  - Status checks tmux session `lcars_lab`.
+  - START creates tmux session in the LCARS root and runs `make up`.
+  - OPEN links to the detected Jupyter server rooted under the LCARS app folder.
+- Added Markdown Folder Context Bar.
+  - Top-level folders under `markdown/` become filter buttons.
+  - Clicking a folder fills the existing sticky Markdown search with `folder/`.
+
+
+## v24b
+
+- Bugfix: Markdown route now passes `markdown_folders` to the template.
+- Folder context bar now appears on Markdown page.
+- Shows a small hint when no markdown subfolders exist yet.
+
+
+## v24c
+
+- Markdown New Document is now folder-context aware.
+- If the sticky Markdown filter is `5111/`, the New Document button opens `/md/new?folder=5111`.
+- New documents created from that page are saved under `markdown/5111/`.
+
+
+## v24d
+
+- Bugfix: fixed broken literal `\n` in `markdown_list.js` that stopped folder context buttons from working.
+- Tightened Markdown folder context button styling back to compact LCARS pills.
+
+
+## v24e
+
+- Bugfix: New Markdown creation script now binds to the actual template IDs:
+  - `new-md-title`
+  - `create-md`
+  - `new-md-error`
+- Folder-context document creation works from the existing New Document form.
+
+
+## v25
+
+- Added external content roots via `content_config.json`.
+- `markdown_dir`, `books_dir`, and `sounds_dir` can now point outside the LCARS app folder.
+- Defaults preserve existing behavior if you do not change the config.
+
+Example:
+
+```json
+{
+  "markdown_dir": "/Users/praedator/Documents/LCARS_CONTENT/markdown",
+  "books_dir": "/Users/praedator/Documents/LCARS_CONTENT/books",
+  "sounds_dir": "/Users/praedator/Documents/LCARS_CONTENT/sounds"
+}
+```
+
+Restart LCARS after editing `content_config.json`.
+
+
+## v25b
+
+- Bugfix: `CONTENT_CONFIG_PATH` is now defined before `load_content_config()` is called.
+- Fixes startup error: `NameError: name 'CONTENT_CONFIG_PATH' is not defined`.
+
+## v26
+
+- Added AWS page for EC2 cost-control.
+- Uses `aws_servers.json` to define allowed instances.
+- Uses boto3 and normal AWS credentials/profile; no AWS keys are stored in LCARS.
+- Supports EC2 status, START, STOP, OPEN JUPYTER, and SSH hint.
+- START/STOP require browser confirmation.

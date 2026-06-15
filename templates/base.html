@@ -20,6 +20,7 @@
         <div id="primary-nav">
           <a class="nav-pill {% if request.path == '/' %}active{% endif %}" href="{{ url_for('dashboard') }}">DASHBOARD</a>
           <a class="nav-pill alt {% if request.path.startswith('/jupyter') %}active{% endif %}" href="{{ url_for('jupyter_page') }}">JUPYTER</a>
+          <a class="nav-pill gold {% if request.path.startswith('/aws') %}active{% endif %}" href="{{ url_for('aws_page') }}">AWS</a>
           <a class="nav-pill blue {% if request.path.startswith('/books') or request.path.startswith('/reader') %}active{% endif %}" href="{{ url_for('books_page') }}">BOOKS</a>
           <a class="nav-pill gold {% if request.path.startswith('/markdown') or request.path.startswith('/md/') %}active{% endif %}" href="{{ url_for('markdown_page') }}">MARKDOWN</a>
           <a class="nav-pill {% if request.path.startswith('/tmux') %}active{% endif %}" href="{{ url_for('tmux_page') }}">TMUX</a>
