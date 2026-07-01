@@ -86,6 +86,11 @@
     progressEl.style.width = `${Math.max(0, Math.min(100, done))}%`;
 
     setConsoleState();
+
+    if (startBtn) {
+      startBtn.textContent = state === "paused" ? "RESUME" : "START";
+    }
+
     document.title = state === "running" ? `${fmt(remainingSeconds)} · ${label}` : `LCARS Focus · ${label}`;
   }
 
@@ -181,7 +186,23 @@
     }
   }
 
+  function resumeCycle() {
+    if (state !== "paused") return;
+    state = "running";
+    if (phase === "focus") {
+      playAudio(workAudio, "work");
+    } else {
+      playAudio(breakAudio, "break");
+    }
+    if (!timer) timer = setInterval(tick, 1000);
+    update();
+  }
+
   function start() {
+    if (state === "paused") {
+      resumeCycle();
+      return;
+    }
     startWorkCycle();
   }
 

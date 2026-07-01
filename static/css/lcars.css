@@ -1288,3 +1288,40 @@ body {
     flex-direction: column;
   }
 }
+
+
+/* v27 QoL release */
+.settings-content-roots {
+  border-top: 1px solid rgba(255,255,255,0.10);
+  margin-top: 8px;
+  padding-top: 8px;
+  min-width: 320px;
+}
+
+.settings-label {
+  color: var(--gold) !important;
+  cursor: default !important;
+}
+
+.settings-root-line {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  padding: 7px 10px;
+  color: var(--text);
+}
+
+.settings-root-line span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+}
+
+.settings-root-line code {
+  white-space: normal;
+  word-break: break-word;
+  color: var(--text);
+  font-size: 0.72rem;
+}

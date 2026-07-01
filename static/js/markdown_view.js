@@ -11,7 +11,7 @@
   const fontReset = document.getElementById("md-font-reset");
   const fontPlus = document.getElementById("md-font-plus");
 
-  const themeKey = `markdown-theme:${window.location.pathname}`;
+  const themeKey = "lcars-markdown-theme";
   const fontKey = `markdown-font-scale:${window.location.pathname}`;
 
   let fontScale = Number(localStorage.getItem(fontKey) || 100);
@@ -85,7 +85,7 @@
     });
   }
 
-  applyTheme(localStorage.getItem(themeKey) || "white");
+  applyTheme(localStorage.getItem(themeKey) || "paper");
   applyFontScale();
   installCodeCopyButtons();
 

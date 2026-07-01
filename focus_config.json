@@ -1,5 +1,5 @@
 {
-  "work_complete_sound": "/static/sounds/millionaire_125000_hour.mp3",
-  "break_complete_sound": "/static/sounds/millionaire_phone.mp3",
+  "work_complete_sound":  "static/sounds/millionaire_125000_hour.mp3",
+  "break_complete_sound": "static/sounds/millionaire_phone.mp3",
   "use_beep_fallback": true
 }

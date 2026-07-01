@@ -38,14 +38,16 @@
   "UVA_5002": {
     "Easy_edit": "https://github.com/bryanchrist/EasyEdit_bc",
     "CANVAS": "https://canvas.its.virginia.edu/courses/190670",
-    "GPU AWS SETUP": "https://github.com/Niarfe/aws_gpu_server_setup/tree/main"
+    "GPU AWS SETUP": "https://github.com/Niarfe/aws_gpu_server_setup/tree/main",
+    "EDUMATH": "https://github.com/bryanchrist/EDUMATH"
   },
   "FUN-PROJECTS_GEMINI": {
     "FunProjectSheet": "https://docs.google.com/spreadsheets/d/16jS_gx2SDpRGizyG3lzZQbD2El7nlbL_fHR9DBLhKWA/edit?gid=1471332399#gid=1471332399"
   },
   "UVA_6015": {
     "CAPSTONE REPO": "https://github.com/Niarfe/DS6015_capstone",
-    "TAKESELFASSESMENT": "https://metyfoundation.org/"
+    "TAKESELFASSESMENT": "https://metyfoundation.org/",
+    "TEAM REPO": "https://github.com/EfrainOlivaresUVA/DS6015_Capstone_Su26"
   },
   "YOUTUBE_FUN_PROGRAMMING": {
     "BUILD A 24-7 OPENCLAW": "https://www.youtube.com/watch?v=ehfTs0wdW5g",

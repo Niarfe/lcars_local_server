@@ -230,3 +230,16 @@ Restart LCARS after editing `content_config.json`.
 - Uses boto3 and normal AWS credentials/profile; no AWS keys are stored in LCARS.
 - Supports EC2 status, START, STOP, OPEN JUPYTER, and SSH hint.
 - START/STOP require browser confirmation.
+
+
+## v27
+
+Quality-of-life release.
+
+- Markdown viewer now defaults to Paper theme.
+- Markdown theme choice is remembered globally across documents.
+- Focus timer now supports Resume:
+  - START becomes RESUME when paused.
+  - Resume keeps the remaining time and current phase.
+  - Resume restarts the appropriate work/break audio.
+- Settings dropdown now shows read-only content roots.

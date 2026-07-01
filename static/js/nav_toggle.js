@@ -50,4 +50,27 @@
       menu.classList.remove("open");
     });
   });
+
+  async function loadContentRoots() {
+    const markdownEl = document.getElementById("settings-markdown-dir");
+    const booksEl = document.getElementById("settings-books-dir");
+    const soundsEl = document.getElementById("settings-sounds-dir");
+
+    if (!markdownEl && !booksEl && !soundsEl) return;
+
+    try {
+      const response = await fetch("/api/content/config");
+      const data = await response.json();
+      const content = data.content || {};
+      if (markdownEl) markdownEl.textContent = content.markdown_dir || "-";
+      if (booksEl) booksEl.textContent = content.books_dir || "-";
+      if (soundsEl) soundsEl.textContent = content.sounds_dir || "-";
+    } catch {
+      if (markdownEl) markdownEl.textContent = "unavailable";
+      if (booksEl) booksEl.textContent = "unavailable";
+      if (soundsEl) soundsEl.textContent = "unavailable";
+    }
+  }
+
+  loadContentRoots();
 })();
