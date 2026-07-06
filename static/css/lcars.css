@@ -1325,3 +1325,117 @@ body {
   color: var(--text);
   font-size: 0.72rem;
 }
+
+
+/* v28 semantic matrix renderer */
+.lcars-matrix-block {
+  margin: 24px 0;
+  padding: 16px;
+  border-radius: 24px;
+  background: rgba(255,255,255,0.035);
+  border: 1px solid rgba(255,255,255,0.10);
+}
+
+.lcars-matrix-heading {
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  color: var(--orange);
+  margin-bottom: 14px;
+  text-transform: uppercase;
+}
+
+.lcars-matrix-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.lcars-matrix-cell {
+  min-height: 150px;
+  padding: 16px;
+  border-radius: 20px;
+  background: rgba(0,0,0,0.18);
+  border: 1px solid rgba(255,255,255,0.08);
+}
+
+.lcars-matrix-title {
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  margin-bottom: 10px;
+  text-transform: uppercase;
+}
+
+.matrix-urgent .lcars-matrix-title {
+  color: #ff8a8a;
+}
+
+.matrix-deadline .lcars-matrix-title {
+  color: var(--gold);
+}
+
+.matrix-admin .lcars-matrix-title {
+  color: var(--blue);
+}
+
+.matrix-creative .lcars-matrix-title {
+  color: var(--purple);
+}
+
+.lcars-matrix-items ul {
+  margin: 0;
+  padding-left: 1.2em;
+}
+
+.lcars-matrix-items li {
+  margin: 0.4em 0;
+}
+
+.matrix-empty {
+  opacity: 0.55;
+}
+
+.markdown-theme-paper .lcars-matrix-block {
+  background: rgba(90, 68, 38, 0.08);
+  border-color: rgba(90, 68, 38, 0.20);
+}
+
+.markdown-theme-paper .lcars-matrix-cell {
+  background: rgba(255,255,255,0.45);
+  border-color: rgba(90, 68, 38, 0.18);
+}
+
+@media (max-width: 900px) {
+  .lcars-matrix-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+
+/* v28b generalized matrix renderer */
+.matrix-cell-1 .lcars-matrix-title { color: #ff8a8a; }
+.matrix-cell-2 .lcars-matrix-title { color: var(--blue); }
+.matrix-cell-3 .lcars-matrix-title { color: var(--gold); }
+.matrix-cell-4 .lcars-matrix-title { color: var(--purple); }
+.matrix-cell-5 .lcars-matrix-title { color: var(--orange); }
+.matrix-cell-6 .lcars-matrix-title { color: #7ddc8b; }
+
+.lcars-matrix-block[data-cols="3"] .lcars-matrix-cell,
+.lcars-matrix-block[data-cols="4"] .lcars-matrix-cell {
+  min-height: 120px;
+}
+
+@media (max-width: 640px) {
+  .lcars-matrix-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .lcars-matrix-cell {
+    grid-column: auto !important;
+    grid-row: auto !important;
+  }
+}
+
+
+/* v28c matrix responsive threshold
+   Keep matrices multi-column on desktop/tablet LCARS layouts.
+   Collapse only on narrow mobile-sized screens. */

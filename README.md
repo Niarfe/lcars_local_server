@@ -243,3 +243,80 @@ Quality-of-life release.
   - Resume keeps the remaining time and current phase.
   - Resume restarts the appropriate work/break audio.
 - Settings dropdown now shows read-only content roots.
+
+
+## v28
+
+- Added semantic Markdown renderer for 2x2 matrices.
+- Source Markdown stays linear and editable.
+- Rendered Markdown converts this pattern into a 2x2 visual matrix:
+
+```markdown
+## Matrix (2x2)
+
+### URGENT
+* item 1
+
+### ADMIN
+* item 2
+
+### DEADLINE
+* item 3
+
+### CREATIVE
+* item 4
+```
+
+Displayed order:
+
+```text
+URGENT    DEADLINE
+ADMIN     CREATIVE
+```
+
+Detection only applies when all four sections are present.
+
+
+## v28b
+
+- Generalized semantic Matrix renderer.
+- Supports `## Matrix (RxC)` for arbitrary matrix sizes up to 6x6.
+- Uses explicit `## End Matrix` delimiter.
+- Section names are arbitrary.
+- Source section order is column-major:
+  - start at top-left
+  - move down the first column
+  - then continue at the top of the next column
+
+Example:
+
+```markdown
+## Matrix (2x2)
+
+### URGENT
+* item 1
+
+### ADMIN
+* item 2
+
+### DEADLINE
+* item 3
+
+### CREATIVE
+* item 4
+
+## End Matrix
+```
+
+Renders as:
+
+```text
+URGENT    DEADLINE
+ADMIN     CREATIVE
+```
+
+
+## v28c
+
+- Bugfix: Matrix renderer no longer collapses to a single column on normal LCARS desktop widths.
+- The responsive single-column fallback now applies only below 640px.

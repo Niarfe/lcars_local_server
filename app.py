@@ -7,6 +7,7 @@ import socket
 import re
 import subprocess
 from pathlib import Path
+from html import escape
 from typing import Any
 
 import markdown as mdlib
@@ -247,8 +248,9 @@ def safe_markdown_path(doc_id: str) -> Path:
 
 def render_markdown(text: str) -> str:
     normalized = normalize_markdown_task_lines(text)
+    semantic = render_semantic_markdown(normalized)
     return mdlib.markdown(
-        normalized,
+        semantic,
         extensions=["fenced_code", "tables", "toc", "sane_lists"]
     )
 
@@ -342,6 +344,157 @@ def add_link_to_tree(path: str, name: str, url: str) -> dict[str, Any]:
     node[clean_name] = clean_url
     save_link_tree(tree)
     return tree
+
+
+
+
+
+def parse_matrix_marker(line: str) -> tuple[int, int, str] | None:
+    match = re.match(r"^##\s+Matrix\s*\((\d+)x(\d+)\)\s*(.*)$", line.strip(), re.I)
+    if not match:
+        return None
+
+    rows = int(match.group(1))
+    cols = int(match.group(2))
+    suffix = match.group(3).strip(" -:")
+    title = suffix if suffix else f"Matrix ({rows}x{cols})"
+
+    if rows < 1 or cols < 1 or rows > 6 or cols > 6:
+        return None
+
+    return rows, cols, title
+
+
+def parse_matrix_section_title(line: str) -> str | None:
+    match = re.match(r"^###\s+(.+?)\s*$", line.strip())
+    if not match:
+        return None
+    return match.group(1).strip()
+
+
+def render_matrix_items(lines: list[str]) -> str:
+    items: list[str] = []
+    current: list[str] = []
+
+    def flush() -> None:
+        nonlocal current
+        text = " ".join(part.strip() for part in current if part.strip()).strip()
+        if text:
+            items.append(text)
+        current = []
+
+    for raw in lines:
+        line = raw.rstrip()
+        bullet = re.match(r"^\s*[-*]\s+(.*)$", line)
+        if bullet:
+            flush()
+            current = [bullet.group(1)]
+        elif current and line.strip():
+            current.append(line.strip())
+        elif current:
+            flush()
+
+    flush()
+
+    if not items:
+        return '<div class="matrix-empty">-</div>'
+
+    return "<ul>" + "".join(f"<li>{escape(item)}</li>" for item in items) + "</ul>"
+
+
+def matrix_cell_position(index: int, rows: int) -> tuple[int, int]:
+    row = index % rows
+    col = index // rows
+    return row, col
+
+
+def build_matrix_html(title: str, rows: int, cols: int, sections: list[tuple[str, list[str]]]) -> str:
+    cells = []
+    for index, (section_title, section_lines) in enumerate(sections):
+        row, col = matrix_cell_position(index, rows)
+        items_html = render_matrix_items(section_lines)
+        cells.append(
+            f'<div class="lcars-matrix-cell matrix-cell-{index + 1}" '
+            f'style="grid-row:{row + 1};grid-column:{col + 1};">'
+            f'<div class="lcars-matrix-title">{escape(section_title)}</div>'
+            f'<div class="lcars-matrix-items">{items_html}</div>'
+            f'</div>'
+        )
+
+    return (
+        f'<div class="lcars-matrix-block" data-rows="{rows}" data-cols="{cols}">'
+        f'<div class="lcars-matrix-heading">{escape(title)}</div>'
+        f'<div class="lcars-matrix-grid" style="grid-template-columns: repeat({cols}, minmax(0, 1fr));">'
+        + "".join(cells) +
+        '</div></div>'
+    )
+
+
+def extract_matrix_block(lines: list[str], start: int) -> tuple[str | None, int]:
+    marker = parse_matrix_marker(lines[start])
+    if not marker:
+        return None, start
+
+    rows, cols, title = marker
+    required_sections = rows * cols
+
+    idx = start + 1
+    sections: list[tuple[str, list[str]]] = []
+    current_title: str | None = None
+    current_lines: list[str] = []
+
+    def flush_section() -> None:
+        nonlocal current_title, current_lines
+        if current_title is not None:
+            sections.append((current_title, current_lines))
+        current_title = None
+        current_lines = []
+
+    while idx < len(lines):
+        line = lines[idx]
+
+        if re.match(r"^##\s+End\s+Matrix\s*$", line.strip(), re.I):
+            flush_section()
+            idx += 1
+            break
+
+        if idx > start + 1 and re.match(r"^##\s+", line):
+            flush_section()
+            break
+
+        section_title = parse_matrix_section_title(line)
+        if section_title:
+            flush_section()
+            current_title = section_title
+            current_lines = []
+        elif current_title is not None:
+            current_lines.append(line)
+
+        idx += 1
+    else:
+        flush_section()
+
+    if len(sections) == required_sections:
+        return build_matrix_html(title, rows, cols, sections), idx
+
+    return None, start
+
+
+def render_semantic_markdown(text: str) -> str:
+    lines = text.splitlines()
+    output: list[str] = []
+    idx = 0
+
+    while idx < len(lines):
+        matrix_html, next_idx = extract_matrix_block(lines, idx)
+        if matrix_html is not None:
+            output.append(matrix_html)
+            idx = next_idx
+        else:
+            output.append(lines[idx])
+            idx += 1
+
+    return "\n".join(output)
 
 
 
