@@ -1,4 +1,8 @@
-# LCARS Flask Monolith v11
+# LCARS Changelog
+
+This document records the feature history of LCARS.
+
+Versions are cumulative and describe the major user-visible additions and bug fixes introduced in each release.
 
 Single-process Flask app with:
 - LCARS dashboard
