@@ -100,21 +100,23 @@ allowing ordinary Markdown to become visual dashboards while remaining portable.
 
 # Screenshots
 
-## Dashboard
-
-> *(Insert screenshot here)*
-
 ---
 
 ## Semantic Markdown Matrix
 
-> *(Insert screenshot here)*
+> ![markdown](images/semantic_matrix.png)
+
+---
+
+## Dashboard
+
+> ![markdown](images/jupyter_servers.png)
 
 ---
 
 ## Markdown Workspace
 
-> *(Insert screenshot here)*
+> ![markdown](images/markdown.png)
 
 ---
 
