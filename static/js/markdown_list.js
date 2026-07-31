@@ -118,24 +118,3 @@
     });
   });
 })();
-
-
-document.querySelectorAll(".actions-toggle").forEach((button) => {
-  button.addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-
-    const menu = button.parentElement.querySelector(".actions-menu");
-    document.querySelectorAll(".actions-menu.open").forEach((m) => {
-      if (m !== menu) m.classList.remove("open");
-    });
-
-    if (menu) menu.classList.toggle("open");
-  });
-});
-
-document.addEventListener("click", () => {
-  document.querySelectorAll(".actions-menu.open").forEach((menu) => {
-    menu.classList.remove("open");
-  });
-});
