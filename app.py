@@ -357,7 +357,7 @@ def parse_matrix_marker(line: str) -> tuple[int, int, str] | None:
     rows = int(match.group(1))
     cols = int(match.group(2))
     suffix = match.group(3).strip(" -:")
-    title = suffix if suffix else f"Matrix ({rows}x{cols})"
+    title = suffix if suffix else ""
 
     if rows < 1 or cols < 1 or rows > 6 or cols > 6:
         return None
@@ -370,6 +370,19 @@ def parse_matrix_section_title(line: str) -> str | None:
     if not match:
         return None
     return match.group(1).strip()
+
+
+
+def render_inline_matrix_markdown(text: str) -> str:
+    """Render a single matrix bullet item as inline Markdown."""
+    rendered = mdlib.markdown(
+        text,
+        extensions=["fenced_code", "tables", "toc", "sane_lists"],
+        output_format="html5",
+    ).strip()
+
+    paragraph = re.match(r"^<p>(.*)</p>$", rendered, re.S)
+    return paragraph.group(1) if paragraph else rendered
 
 
 def render_matrix_items(lines: list[str]) -> str:
@@ -399,7 +412,7 @@ def render_matrix_items(lines: list[str]) -> str:
     if not items:
         return '<div class="matrix-empty">-</div>'
 
-    return "<ul>" + "".join(f"<li>{escape(item)}</li>" for item in items) + "</ul>"
+    return "<ul>" + "".join(f"<li>{render_inline_matrix_markdown(item)}</li>" for item in items) + "</ul>"
 
 
 def matrix_cell_position(index: int, rows: int) -> tuple[int, int]:
@@ -421,14 +434,15 @@ def build_matrix_html(title: str, rows: int, cols: int, sections: list[tuple[str
             f'</div>'
         )
 
+    heading_html = f'<div class="lcars-matrix-heading">{escape(title)}</div>' if title else ""
+
     return (
         f'<div class="lcars-matrix-block" data-rows="{rows}" data-cols="{cols}">'
-        f'<div class="lcars-matrix-heading">{escape(title)}</div>'
+        + heading_html +
         f'<div class="lcars-matrix-grid" style="grid-template-columns: repeat({cols}, minmax(0, 1fr));">'
         + "".join(cells) +
         '</div></div>'
     )
-
 
 def extract_matrix_block(lines: list[str], start: int) -> tuple[str | None, int]:
     marker = parse_matrix_marker(lines[start])

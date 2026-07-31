@@ -320,3 +320,18 @@ ADMIN     CREATIVE
 
 - Bugfix: Matrix renderer no longer collapses to a single column on normal LCARS desktop widths.
 - The responsive single-column fallback now applies only below 640px.
+
+
+## v28d
+
+Matrix polish.
+
+- `## Matrix (RxC)` is now structural only and does not display a visible title.
+- Optional visible title supported:
+  - `## Matrix (2x2): Weekly Priorities`
+  - renders title as `Weekly Priorities`
+- Matrix bullet items now support inline Markdown:
+  - `**bold**`
+  - inline code
+  - `[inline links](https://example.com)`
+- `## End Matrix` remains the explicit delimiter.
