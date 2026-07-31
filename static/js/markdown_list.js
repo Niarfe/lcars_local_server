@@ -17,6 +17,18 @@
     link.textContent = folder ? `NEW ${folder.toUpperCase()} DOC` : "NEW DOCUMENT";
   }
 
+  function normalizeFolderFilter(value) {
+    const folder = (value || "").trim().replace(/^\/+|\/+$/g, "");
+    return folder ? `${folder.toLowerCase()}/` : "";
+  }
+
+  function getInitialFilter() {
+    const params = new URLSearchParams(window.location.search);
+    const folderFilter = normalizeFolderFilter(params.get("folder") || "");
+    if (folderFilter) return folderFilter;
+    return localStorage.getItem(FILTER_KEY) || "";
+  }
+
   function applyFilter() {
     const query = (filterInput.value || "").trim().toLowerCase();
     localStorage.setItem(FILTER_KEY, query);
@@ -96,7 +108,7 @@
   });
 
   if (filterInput) {
-    filterInput.value = localStorage.getItem(FILTER_KEY) || "";
+    filterInput.value = getInitialFilter();
     filterInput.addEventListener("input", applyFilter);
     applyFilter();
   }

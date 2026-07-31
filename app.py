@@ -17,7 +17,7 @@ try:
     import boto3
 except ImportError:
     boto3 = None
-from flask import Flask, abort, jsonify, render_template, request
+from flask import Flask, abort, jsonify, redirect, render_template, request, url_for
 from jupyter_server.serverapp import list_running_servers
 
 app = Flask(__name__)
@@ -244,6 +244,17 @@ def safe_markdown_path(doc_id: str) -> Path:
         raise ValueError("Invalid markdown path")
     if candidate.suffix.lower() != ".md":
         raise ValueError("Only .md files are supported")
+    return candidate
+
+def safe_markdown_folder_path(folder_id: str) -> Path:
+    folder_id = folder_id.strip("/")
+    if not folder_id:
+        raise ValueError("Invalid markdown folder")
+    candidate = (MARKDOWN_DIR / folder_id).resolve()
+    if not str(candidate).startswith(str(MARKDOWN_DIR.resolve())):
+        raise ValueError("Invalid markdown folder")
+    if not candidate.is_dir():
+        raise ValueError("Markdown folder not found")
     return candidate
 
 def render_markdown(text: str) -> str:
@@ -841,11 +852,16 @@ def markdown_page() -> str:
     )
 
 @app.get("/md/view/<path:doc_id>")
-def markdown_view(doc_id: str) -> str:
+def markdown_view(doc_id: str) -> Any:
     try:
         doc_path = safe_markdown_path(doc_id)
     except ValueError:
-        abort(404)
+        try:
+            folder_path = safe_markdown_folder_path(doc_id)
+        except ValueError:
+            abort(404)
+        folder = folder_path.relative_to(MARKDOWN_DIR).as_posix()
+        return redirect(url_for("markdown_page", folder=f"{folder}/"))
     if not doc_path.exists():
         abort(404)
     text = doc_path.read_text(encoding="utf-8", errors="replace")
