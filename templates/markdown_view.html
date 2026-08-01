@@ -1,8 +1,6 @@
 {% extends "base.html" %}
-{% block title %}Markdown Viewer<script src="{{ url_for('static', filename='js/markdown_view.js') }}"></script>
-{% endblock %}
-{% block main_class %}reader-main<script src="{{ url_for('static', filename='js/markdown_view.js') }}"></script>
-{% endblock %}
+{% block title %}Markdown Viewer{% endblock %}
+{% block main_class %}reader-main{% endblock %}
 {% block content %}
 <header class="hero">
   <div>
@@ -47,5 +45,6 @@
     <div class="markdown-body" id="markdown-body">{{ rendered|safe }}</div>
   </article>
 </section>
+<script src="{{ url_for('static', filename='vendor/mermaid/mermaid.min.js') }}"></script>
 <script src="{{ url_for('static', filename='js/markdown_view.js') }}"></script>
 {% endblock %}

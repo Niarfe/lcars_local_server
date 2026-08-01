@@ -66,6 +66,19 @@ BOOKS_DIR = expand_content_path(CONTENT_CONFIG.get("books_dir", ""), APP_DIR / "
 MARKDOWN_DIR = expand_content_path(CONTENT_CONFIG.get("markdown_dir", ""), APP_DIR / "markdown")
 SOUNDS_DIR = expand_content_path(CONTENT_CONFIG.get("sounds_dir", ""), APP_DIR / "static" / "sounds")
 
+MARKDOWN_EXTENSIONS = ["fenced_code", "tables", "toc", "sane_lists", "codehilite"]
+MARKDOWN_EXTENSION_CONFIGS = {
+    "codehilite": {
+        "guess_lang": False,
+        "noclasses": False,
+        "use_pygments": True,
+    }
+}
+MERMAID_FENCE_RE = re.compile(
+    r"(?ms)(^|\n)(?P<fence>`{3,}|~{3,})[ \t]*(?P<info>[^\n]*)\n"
+    r"(?P<body>.*?)(?:\n(?P=fence)[ \t]*(?=\n|$))"
+)
+
 
 def ensure_content_dirs() -> None:
     MARKDOWN_DIR.mkdir(parents=True, exist_ok=True)
@@ -257,13 +270,37 @@ def safe_markdown_folder_path(folder_id: str) -> Path:
         raise ValueError("Markdown folder not found")
     return candidate
 
+def markdown_to_html(text: str) -> str:
+    return mdlib.markdown(
+        text,
+        extensions=MARKDOWN_EXTENSIONS,
+        extension_configs=MARKDOWN_EXTENSION_CONFIGS,
+        output_format="html5",
+    )
+
+
+def is_mermaid_fence_info(info: str) -> bool:
+    tokens = [token.strip("{}.,").lower() for token in info.split()]
+    return "mermaid" in tokens or ".mermaid" in tokens
+
+
+def render_mermaid_fences(text: str) -> str:
+    def replace(match: re.Match[str]) -> str:
+        info = match.group("info").strip()
+        if not is_mermaid_fence_info(info):
+            return match.group(0)
+
+        diagram = escape(match.group("body").strip("\n"))
+        return f'{match.group(1)}<div class="mermaid">{diagram}</div>\n'
+
+    return MERMAID_FENCE_RE.sub(replace, text)
+
+
 def render_markdown(text: str) -> str:
     normalized = normalize_markdown_task_lines(text)
     semantic = render_semantic_markdown(normalized)
-    return mdlib.markdown(
-        semantic,
-        extensions=["fenced_code", "tables", "toc", "sane_lists"]
-    )
+    with_diagrams = render_mermaid_fences(semantic)
+    return markdown_to_html(with_diagrams)
 
 
 def get_tmux_sessions() -> list[dict[str, Any]]:
@@ -386,11 +423,7 @@ def parse_matrix_section_title(line: str) -> str | None:
 
 def render_inline_matrix_markdown(text: str) -> str:
     """Render a single matrix bullet item as inline Markdown."""
-    rendered = mdlib.markdown(
-        text,
-        extensions=["fenced_code", "tables", "toc", "sane_lists"],
-        output_format="html5",
-    ).strip()
+    rendered = markdown_to_html(text).strip()
 
     paragraph = re.match(r"^<p>(.*)</p>$", rendered, re.S)
     return paragraph.group(1) if paragraph else rendered

@@ -15,6 +15,160 @@
   const fontKey = `markdown-font-scale:${window.location.pathname}`;
 
   let fontScale = Number(localStorage.getItem(fontKey) || 100);
+  let mermaidRenderToken = 0;
+
+  function getActiveTheme() {
+    if (surface && surface.classList.contains("markdown-theme-dark")) return "dark";
+    if (surface && surface.classList.contains("markdown-theme-white")) return "white";
+    return "paper";
+  }
+
+  function getMermaidThemeVariables() {
+    const theme = getActiveTheme();
+
+    if (theme === "dark") {
+      return {
+        background: "#10141f",
+        primaryColor: "#79b8ff",
+        primaryTextColor: "#111111",
+        primaryBorderColor: "#b6dcff",
+        secondaryColor: "#e6c36a",
+        secondaryTextColor: "#111111",
+        secondaryBorderColor: "#ffcf8a",
+        tertiaryColor: "#d783c7",
+        tertiaryTextColor: "#111111",
+        tertiaryBorderColor: "#ffc2ef",
+        mainBkg: "#79b8ff",
+        secondBkg: "#e6c36a",
+        tertiaryBkg: "#d783c7",
+        lineColor: "#79b8ff",
+        textColor: "#ddd6c7",
+        titleColor: "#f7d9b6",
+        nodeTextColor: "#111111",
+        edgeLabelBackground: "#17181d",
+        clusterBkg: "#151d2d",
+        clusterBorder: "#79b8ff",
+        noteBkgColor: "#17181d",
+        noteTextColor: "#ddd6c7",
+        noteBorderColor: "#e6c36a"
+      };
+    }
+
+    if (theme === "white") {
+      return {
+        background: "#f6f8fa",
+        primaryColor: "#79b8ff",
+        primaryTextColor: "#111111",
+        primaryBorderColor: "#1f6feb",
+        secondaryColor: "#e6c36a",
+        secondaryTextColor: "#111111",
+        secondaryBorderColor: "#9b5a16",
+        tertiaryColor: "#d783c7",
+        tertiaryTextColor: "#111111",
+        tertiaryBorderColor: "#9f4a91",
+        mainBkg: "#79b8ff",
+        secondBkg: "#e6c36a",
+        tertiaryBkg: "#d783c7",
+        lineColor: "#1f6feb",
+        textColor: "#24292f",
+        titleColor: "#1f2328",
+        nodeTextColor: "#111111",
+        edgeLabelBackground: "#ffffff",
+        clusterBkg: "#eef3f8",
+        clusterBorder: "#1f6feb",
+        noteBkgColor: "#fff6d8",
+        noteTextColor: "#24292f",
+        noteBorderColor: "#1f6feb"
+      };
+    }
+
+    return {
+      background: "#fbf2dc",
+      primaryColor: "#79b8ff",
+      primaryTextColor: "#111111",
+      primaryBorderColor: "#366c9e",
+      secondaryColor: "#e6c36a",
+      secondaryTextColor: "#111111",
+      secondaryBorderColor: "#8b4f16",
+      tertiaryColor: "#d783c7",
+      tertiaryTextColor: "#111111",
+      tertiaryBorderColor: "#8a477d",
+      mainBkg: "#79b8ff",
+      secondBkg: "#e6c36a",
+      tertiaryBkg: "#d783c7",
+      lineColor: "#366c9e",
+      textColor: "#2e2418",
+      titleColor: "#2e2418",
+      nodeTextColor: "#111111",
+      edgeLabelBackground: "#fbf2dc",
+      clusterBkg: "#efe4c9",
+      clusterBorder: "#366c9e",
+      noteBkgColor: "#fff3c4",
+      noteTextColor: "#2e2418",
+      noteBorderColor: "#366c9e"
+    };
+  }
+
+  function getMermaidBlocks() {
+    if (!body) return [];
+    return Array.from(body.querySelectorAll(".mermaid"));
+  }
+
+  function prepareMermaidBlocks(blocks) {
+    blocks.forEach((block) => {
+      if (!block.dataset.diagramSource) {
+        block.dataset.diagramSource = block.textContent || "";
+      }
+      block.classList.remove("mermaid-error", "mermaid-unavailable");
+      block.removeAttribute("data-processed");
+      block.textContent = block.dataset.diagramSource;
+    });
+  }
+
+  function markMermaidBlocks(blocks, className) {
+    blocks.forEach((block) => {
+      block.classList.add(className);
+      if (block.dataset.diagramSource) {
+        block.removeAttribute("data-processed");
+        block.textContent = block.dataset.diagramSource;
+      }
+    });
+  }
+
+  function renderMermaidDiagrams() {
+    const blocks = getMermaidBlocks();
+    if (!blocks.length) return;
+
+    if (!window.mermaid) {
+      markMermaidBlocks(blocks, "mermaid-unavailable");
+      return;
+    }
+
+    const renderToken = ++mermaidRenderToken;
+    prepareMermaidBlocks(blocks);
+
+    try {
+      window.mermaid.initialize({
+        startOnLoad: false,
+        securityLevel: "strict",
+        theme: "base",
+        themeVariables: getMermaidThemeVariables(),
+        fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace"
+      });
+
+      const result = window.mermaid.run({ nodes: blocks });
+      if (result && typeof result.catch === "function") {
+        result.catch((error) => {
+          if (renderToken !== mermaidRenderToken) return;
+          console.warn("Mermaid render failed", error);
+          markMermaidBlocks(blocks, "mermaid-error");
+        });
+      }
+    } catch (error) {
+      console.warn("Mermaid render failed", error);
+      markMermaidBlocks(blocks, "mermaid-error");
+    }
+  }
 
   function applyTheme(theme) {
     if (!surface) return;
@@ -22,6 +176,7 @@
     surface.classList.toggle("markdown-theme-paper", theme === "paper");
     surface.classList.toggle("markdown-theme-dark", theme === "dark");
     localStorage.setItem(themeKey, theme);
+    renderMermaidDiagrams();
   }
 
   function applyFontScale() {
