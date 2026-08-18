@@ -36,6 +36,11 @@ button { border: 0; cursor: pointer; font: inherit; }
   background: var(--panel);
   border-radius: 36px;
   padding: 16px;
+  position: sticky;
+  top: 16px;
+  align-self: start;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -486,6 +491,7 @@ h1 {
 
 @media (max-width: 900px) {
   .shell, .grid, .stats { grid-template-columns: 1fr; }
+  .nav { position: static; max-height: none; overflow: visible; }
   .hero, .server-card, .server-main, .book-row { flex-direction: column; align-items: flex-start; }
   .launch-group { width: 100%; }
   .lcars-port, .lcars-tab { min-width: unset; }
