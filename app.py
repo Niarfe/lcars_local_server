@@ -5,6 +5,7 @@ import os
 import platform
 import socket
 import re
+import shutil
 import subprocess
 from pathlib import Path
 from html import escape
@@ -65,6 +66,7 @@ CONTENT_CONFIG = load_content_config()
 BOOKS_DIR = expand_content_path(CONTENT_CONFIG.get("books_dir", ""), APP_DIR / "books")
 MARKDOWN_DIR = expand_content_path(CONTENT_CONFIG.get("markdown_dir", ""), APP_DIR / "markdown")
 SOUNDS_DIR = expand_content_path(CONTENT_CONFIG.get("sounds_dir", ""), APP_DIR / "static" / "sounds")
+ARCHIVE_DIR = MARKDOWN_DIR.parent / "archive"
 
 MARKDOWN_EXTENSIONS = ["fenced_code", "tables", "toc", "sane_lists", "codehilite"]
 MARKDOWN_EXTENSION_CONFIGS = {
@@ -270,6 +272,191 @@ def safe_markdown_folder_path(folder_id: str) -> Path:
         raise ValueError("Markdown folder not found")
     return candidate
 
+def safe_markdown_top_folder(folder_id: str) -> tuple[str, Path]:
+    folder = folder_id.strip().strip("/")
+    if not folder or "/" in folder or "\\" in folder or folder in {".", ".."}:
+        raise ValueError("Invalid markdown folder")
+    path = safe_markdown_folder_path(folder)
+    return folder, path
+
+def git_root_for_content() -> Path:
+    completed = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        cwd=MARKDOWN_DIR.parent,
+        capture_output=True,
+        text=True,
+        timeout=8,
+        check=False,
+    )
+    if completed.returncode != 0:
+        detail = completed.stderr.strip() or completed.stdout.strip() or "Content root is not a Git repository"
+        raise RuntimeError(detail)
+    return Path(completed.stdout.strip()).resolve()
+
+def path_in_root(path: Path, root: Path) -> str:
+    resolved = path.resolve()
+    try:
+        return resolved.relative_to(root).as_posix()
+    except ValueError as exc:
+        raise ValueError("Path must stay inside the content Git repository") from exc
+
+def run_content_git(args: list[str], repo_root: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", *args],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+
+def is_under_path(path: str, parent: str) -> bool:
+    clean_parent = parent.rstrip("/")
+    return path == clean_parent or path.startswith(f"{clean_parent}/")
+
+def staged_files(repo_root: Path) -> list[str]:
+    completed = run_content_git(["diff", "--cached", "--name-only"], repo_root)
+    if completed.returncode != 0:
+        raise RuntimeError(completed.stderr.strip() or "Git diff failed")
+    return [line.strip() for line in completed.stdout.splitlines() if line.strip()]
+
+def staged_files_for_paths(repo_root: Path, paths: list[str]) -> list[str]:
+    allowed = [path.rstrip("/") for path in paths]
+    return [
+        path
+        for path in staged_files(repo_root)
+        if any(is_under_path(path, parent) for parent in allowed)
+    ]
+
+def ensure_staged_scope(repo_root: Path, paths: list[str]) -> None:
+    allowed = [path.rstrip("/") for path in paths]
+    outside = [
+        path
+        for path in staged_files(repo_root)
+        if not any(is_under_path(path, parent) for parent in allowed)
+    ]
+    if outside:
+        preview = ", ".join(outside[:5])
+        suffix = "" if len(outside) <= 5 else f", and {len(outside) - 5} more"
+        raise RuntimeError(f"Staged changes outside archive scope: {preview}{suffix}")
+
+def stage_paths(repo_root: Path, paths: list[str]) -> None:
+    for path in paths:
+        full_path = repo_root / path
+        if full_path.exists():
+            completed = run_content_git(["add", "-A", "--", path], repo_root)
+        else:
+            completed = run_content_git(["rm", "-r", "--cached", "--ignore-unmatch", "--", path], repo_root)
+        if completed.returncode != 0:
+            raise RuntimeError(completed.stderr.strip() or "Git stage failed")
+
+def checkpoint_paths(repo_root: Path, paths: list[str], message: str) -> str | None:
+    stage_paths(repo_root, paths)
+    ensure_staged_scope(repo_root, paths)
+    if not staged_files_for_paths(repo_root, paths):
+        return None
+    commit = run_content_git(["commit", "-m", message], repo_root)
+    if commit.returncode != 0:
+        raise RuntimeError(commit.stderr.strip() or "Git commit failed")
+    rev = run_content_git(["rev-parse", "--short", "HEAD"], repo_root)
+    if rev.returncode != 0:
+        raise RuntimeError(rev.stderr.strip() or "Could not read commit hash")
+    return rev.stdout.strip()
+
+def archive_preview(folder_id: str) -> dict[str, Any]:
+    folder, active_path = safe_markdown_top_folder(folder_id)
+    archive_path = (ARCHIVE_DIR / folder).resolve()
+    repo_root = git_root_for_content()
+    rel_active = path_in_root(active_path, repo_root)
+    rel_archive = path_in_root(archive_path, repo_root)
+    active_files = {
+        item.relative_to(active_path).as_posix()
+        for item in active_path.rglob("*")
+        if item.is_file()
+    }
+    archive_files = {
+        item.relative_to(archive_path).as_posix()
+        for item in archive_path.rglob("*")
+        if item.is_file()
+    } if archive_path.exists() else set()
+    return {
+        "folder": folder,
+        "active_path": rel_active,
+        "archive_path": rel_archive,
+        "archive_exists": archive_path.exists(),
+        "active_files": len(active_files),
+        "archive_files": len(archive_files),
+        "overwrite_files": len(active_files & archive_files),
+        "repo_root": str(repo_root),
+    }
+
+def merge_directory(source: Path, destination: Path) -> None:
+    destination.mkdir(parents=True, exist_ok=True)
+    for item in source.iterdir():
+        target = destination / item.name
+        if item.is_dir():
+            if target.exists() and not target.is_dir():
+                target.unlink()
+            merge_directory(item, target)
+            item.rmdir()
+        else:
+            if target.exists():
+                if target.is_dir():
+                    shutil.rmtree(target)
+                else:
+                    target.unlink()
+            shutil.move(str(item), str(target))
+
+def archive_markdown_folder(folder_id: str) -> dict[str, Any]:
+    preview = archive_preview(folder_id)
+    folder = preview["folder"]
+    active_path = MARKDOWN_DIR / folder
+    archive_path = ARCHIVE_DIR / folder
+    repo_root = Path(preview["repo_root"])
+    rel_active = str(preview["active_path"])
+    rel_archive = str(preview["archive_path"])
+    commits: list[dict[str, str]] = []
+
+    active_commit = checkpoint_paths(
+        repo_root,
+        [rel_active],
+        f"Archive checkpoint: {rel_active} before archive",
+    )
+    if active_commit:
+        commits.append({"kind": "active_checkpoint", "hash": active_commit})
+
+    ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
+    if archive_path.exists():
+        archive_commit = checkpoint_paths(
+            repo_root,
+            [rel_archive],
+            f"Archive checkpoint: {rel_archive} before merge",
+        )
+        if archive_commit:
+            commits.append({"kind": "archive_checkpoint", "hash": archive_commit})
+
+        merge_directory(active_path, archive_path)
+        active_path.rmdir()
+    else:
+        move = run_content_git(["mv", rel_active, rel_archive], repo_root)
+        if move.returncode != 0:
+            raise RuntimeError(move.stderr.strip() or "Git move failed")
+
+    final_commit = checkpoint_paths(
+        repo_root,
+        [rel_active, rel_archive],
+        f"Archive {rel_active} into {rel_archive}",
+    )
+    if final_commit:
+        commits.append({"kind": "archive", "hash": final_commit})
+
+    return {
+        "folder": folder,
+        "active_path": rel_active,
+        "archive_path": rel_archive,
+        "commits": commits,
+    }
+
 def markdown_to_html(text: str) -> str:
     return mdlib.markdown(
         text,
@@ -397,17 +584,24 @@ def add_link_to_tree(path: str, name: str, url: str) -> dict[str, Any]:
 
 
 
-def parse_matrix_marker(line: str) -> tuple[int, int, str] | None:
-    match = re.match(r"^##\s+Matrix\s*\((\d+)x(\d+)\)\s*(.*)$", line.strip(), re.I)
+def parse_matrix_marker(line: str) -> tuple[int | None, int, str] | None:
+    match = re.match(r"^##\s+Matrix\s*\(((?:\d+)|R)x(\d+)\)\s*(.*)$", line.strip(), re.I)
     if not match:
         return None
 
-    rows = int(match.group(1))
+    row_token = match.group(1).upper()
+    rows = None if row_token == "R" else int(row_token)
     cols = int(match.group(2))
     suffix = match.group(3).strip(" -:")
     title = suffix if suffix else ""
 
-    if rows < 1 or cols < 1 or rows > 6 or cols > 6:
+    if rows is None and cols != 1:
+        return None
+
+    if cols < 1 or cols > 6:
+        return None
+
+    if rows is not None and (rows < 1 or rows > 6):
         return None
 
     return rows, cols, title
@@ -494,7 +688,6 @@ def extract_matrix_block(lines: list[str], start: int) -> tuple[str | None, int]
         return None, start
 
     rows, cols, title = marker
-    required_sections = rows * cols
 
     idx = start + 1
     sections: list[tuple[str, list[str]]] = []
@@ -532,6 +725,12 @@ def extract_matrix_block(lines: list[str], start: int) -> tuple[str | None, int]
     else:
         flush_section()
 
+    if rows is None:
+        rows = len(sections)
+        if rows < 1 or rows > 36:
+            return None, start
+
+    required_sections = rows * cols
     if len(sections) == required_sections:
         return build_matrix_html(title, rows, cols, sections), idx
 
@@ -997,6 +1196,28 @@ def api_markdown_delete(doc_id: str) -> Any:
     path.unlink()
     return jsonify({"ok": True})
 
+@app.get("/api/markdown/archive/preview/<folder_id>")
+def api_markdown_archive_preview(folder_id: str) -> Any:
+    try:
+        preview = archive_preview(folder_id)
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    except RuntimeError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    return jsonify({"ok": True, "archive": preview})
+
+@app.post("/api/markdown/archive/<folder_id>")
+def api_markdown_archive(folder_id: str) -> Any:
+    try:
+        result = archive_markdown_folder(folder_id)
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    except RuntimeError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    except OSError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    return jsonify({"ok": True, "archive": result})
+
 @app.post("/api/book/delete/<path:book_id>")
 def api_book_delete(book_id: str) -> Any:
     try:
@@ -1073,10 +1294,12 @@ def api_content_config() -> Any:
         "ok": True,
         "content": {
             "markdown_dir": str(MARKDOWN_DIR),
+            "archive_dir": str(ARCHIVE_DIR),
             "books_dir": str(BOOKS_DIR),
             "sounds_dir": str(SOUNDS_DIR),
             "config_path": str(CONTENT_CONFIG_PATH),
             "markdown_exists": MARKDOWN_DIR.exists(),
+            "archive_exists": ARCHIVE_DIR.exists(),
             "books_exists": BOOKS_DIR.exists(),
             "sounds_exists": SOUNDS_DIR.exists(),
         }

@@ -46,7 +46,7 @@ The goal is to add capabilities without locking your content into a proprietary 
 Current semantic blocks include:
 
 - Matrix (RxC)
-- Matrix (Rx1)
+- Matrix (Rx1) for auto-sized vertical lists
 - Matrix (1xC)
 
 allowing ordinary Markdown to become visual dashboards while remaining portable.
@@ -200,6 +200,25 @@ Example:
 ```
 
 renders as a visual matrix while the underlying document remains ordinary Markdown.
+
+For a vertical matrix that grows as you add sections, use literal `R` for rows:
+
+```markdown
+## Matrix (Rx1): Reading Queue
+
+### FIRST
+* item one
+
+### SECOND
+* item two
+
+### THIRD
+* item three
+
+## End Matrix
+```
+
+LCARS renders that as a one-column matrix with one row per section.
 
 ---
 

@@ -339,3 +339,10 @@ Matrix polish.
   - inline code
   - `[inline links](https://example.com)`
 - `## End Matrix` remains the explicit delimiter.
+
+
+## v28e
+
+- Added literal `## Matrix (Rx1)` support for auto-sized vertical matrices.
+- `R` is inferred from the number of `###` sections in the block.
+- Other dynamic forms, such as `Rx2`, remain unsupported.

@@ -7,6 +7,7 @@
     <h1>MARKDOWN DOCS</h1>
   </div>
   <div class="hero-badges">
+    <button class="badge alt hidden" id="archive-markdown-context" type="button">ARCHIVE</button>
     <a class="badge linklike" id="new-markdown-context-link" href="{{ url_for('markdown_new') }}">NEW DOCUMENT</a>
     <div class="badge gold">{{ docs|length }} DOCS</div>
   </div>
@@ -55,5 +56,20 @@
   </div>
   {% endif %}
 </section>
+
+<div class="modal-backdrop hidden" id="archive-modal" role="dialog" aria-modal="true" aria-labelledby="archive-modal-title">
+  <div class="modal-panel">
+    <div class="panel-header">
+      <span id="archive-modal-title">ARCHIVE FOLDER</span>
+      <button class="mini" id="archive-cancel" type="button">CANCEL</button>
+    </div>
+    <div class="archive-summary" id="archive-summary"></div>
+    <div class="archive-status subtle" id="archive-status"></div>
+    <div class="archive-actions">
+      <button class="mini alt" id="archive-confirm" type="button">CONFIRM ARCHIVE</button>
+    </div>
+  </div>
+</div>
+
 <script src="{{ url_for('static', filename='js/markdown_list.js') }}"></script>
 {% endblock %}

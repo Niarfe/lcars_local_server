@@ -1577,3 +1577,60 @@ body {
 /* v28c matrix responsive threshold
    Keep matrices multi-column on desktop/tablet LCARS layouts.
    Collapse only on narrow mobile-sized screens. */
+
+/* v29 markdown folder archive */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(2, 4, 10, 0.74);
+}
+
+.modal-panel {
+  width: min(640px, 100%);
+  background: var(--panel);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 18px;
+  padding: 16px;
+  box-shadow: 0 24px 70px rgba(0,0,0,0.55);
+}
+
+.archive-summary {
+  display: grid;
+  gap: 10px;
+  margin: 14px 0;
+}
+
+.archive-summary-row {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--panel-2);
+  border-radius: 8px;
+}
+
+.archive-summary-row span:last-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: 800;
+}
+
+.archive-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+
+.archive-status {
+  min-height: 1.2em;
+}
+
+@media (max-width: 640px) {
+  .archive-summary-row {
+    grid-template-columns: 1fr;
+  }
+}
