@@ -150,6 +150,7 @@ activemq-data/
 # Environments
 .env
 .envrc
+s3_library.local.json
 .venv
 env/
 venv/
@@ -218,6 +219,7 @@ __marimo__/
 .streamlit/secrets.toml
 markdown
 books
+youtube_library.sqlite3*
 
 **/*.bak
 **/*.mp3

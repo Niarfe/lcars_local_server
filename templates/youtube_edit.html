@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}Update YouTube{% endblock %}
+{% block content %}
+<header class="hero">
+  <div>
+    <div class="eyebrow">YOUTUBE UPDATE</div>
+    <h1>EDIT VIDEO / SHORT</h1>
+  </div>
+  <div class="hero-badges">
+    <a class="badge linklike" href="{{ video.url }}" target="_blank" rel="noopener noreferrer">OPEN ITEM</a>
+    <a class="badge alt linklike" href="{{ url_for('youtube_video_transcript', video_id=video.id) }}">TRANSCRIPT</a>
+    <a class="badge gold linklike" href="{{ url_for('youtube_source', source_id=video.source_id) }}">SOURCE</a>
+    <a class="badge blue linklike" href="{{ url_for('youtube_page') }}">LIBRARY</a>
+  </div>
+</header>
+
+{% if notice %}
+<section class="panel">
+  <div class="panel-header">
+    <span>YOUTUBE LIBRARY</span>
+    <span class="subtle">{{ notice }}</span>
+  </div>
+</section>
+{% endif %}
+
+<section class="youtube-capture-layout">
+  <div class="panel">
+    <div class="panel-header">
+      <span>VIDEO / SHORT</span>
+      <span class="subtle">{{ video.video_id }}</span>
+    </div>
+    {% if video.thumbnail_url %}
+    <img class="youtube-capture-thumb" src="{{ video.thumbnail_url }}" alt="" />
+    {% endif %}
+    <div class="youtube-detail-title">{{ video.title }}</div>
+    <div class="subtle">{{ video.source_name }}</div>
+    {% if video.source_url %}
+    <div class="youtube-source-link">
+      <a class="badge linklike" href="{{ video.source_url }}" target="_blank" rel="noopener noreferrer">OPEN SOURCE</a>
+    </div>
+    {% endif %}
+    {% if error %}
+    <div class="empty-state">
+      <div class="empty-title">UPDATE FAILED</div>
+      <div class="subtle">{{ error }}</div>
+    </div>
+    {% endif %}
+    {% if video.transcripts %}
+    <div class="youtube-transcript-list">
+      <div class="label">SAVED TRANSCRIPTS</div>
+      {% for transcript in video.transcripts %}
+      <a class="badge linklike" href="{{ url_for('markdown_view', doc_id=transcript.markdown_rel_path) }}">
+        {{ transcript.language_name or transcript.language_code }}
+      </a>
+      {% endfor %}
+      <a class="badge alt linklike" href="{{ url_for('youtube_video_transcript', video_id=video.id, choose=1) }}">FETCH ANOTHER</a>
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">
+      <span>METADATA</span>
+      <span class="subtle">EDIT SAVED RECORD</span>
+    </div>
+    <form class="youtube-capture-form" action="{{ url_for('youtube_video_update', video_id=video.id) }}" method="post">
+      <label>
+        <span class="label">VIDEO / SHORT TITLE</span>
+        <input class="new-md-input" name="title" type="text" value="{{ video.title }}" />
+      </label>
+
+      <label>
+        <span class="label">SOURCE NAME</span>
+        <input class="new-md-input" name="source_name" type="text" value="{{ video.source_name }}" />
+      </label>
+
+      <label>
+        <span class="label">SOURCE URL</span>
+        <input class="new-md-input" name="source_url" type="url" value="{{ video.source_url }}" />
+      </label>
+
+      <label>
+        <span class="label">SOURCE ALIAS</span>
+        <input class="new-md-input" name="source_alias" type="text" value="{{ video.source_alias }}" placeholder="AI harnesses guy" />
+      </label>
+
+      <label>
+        <span class="label">SOURCE TAGS</span>
+        <input class="new-md-input" name="source_tags" type="text" value="{{ video.source_tags|join(', ') }}" placeholder="ai, agents, french, news" />
+      </label>
+
+      <label>
+        <span class="label">VIDEO / SHORT TAGS</span>
+        <input class="new-md-input" name="video_tags" type="text" value="{{ video.tags|join(', ') }}" placeholder="llama3, evals, demo" />
+      </label>
+
+      <label>
+        <span class="label">VIDEO / SHORT NOTES</span>
+        <textarea class="youtube-notes-input" name="video_notes" placeholder="What will future-you remember about this?">{{ video.notes }}</textarea>
+      </label>
+
+      <button class="action" type="submit">UPDATE METADATA</button>
+    </form>
+  </div>
+</section>
+{% endblock %}

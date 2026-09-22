@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}Capture YouTube{% endblock %}
+{% block content %}
+<header class="hero">
+  <div>
+    <div class="eyebrow">YOUTUBE CAPTURE</div>
+    <h1>SAVE SOURCE</h1>
+  </div>
+  <div class="hero-badges">
+    <a class="badge gold linklike" href="{{ url_for('youtube_page') }}">LIBRARY</a>
+  </div>
+</header>
+
+<section class="youtube-capture-layout">
+  <div class="panel">
+    <div class="panel-header">
+      <span>VIDEO / SHORT</span>
+      <span class="subtle">{{ video_id or "URL REQUIRED" }}</span>
+    </div>
+    {% if thumbnail_url %}
+    <img class="youtube-capture-thumb" src="{{ thumbnail_url }}" alt="" />
+    {% endif %}
+    {% if error %}
+    <div class="empty-state">
+      <div class="empty-title">CAPTURE NEEDS A VALID YOUTUBE VIDEO OR SHORT URL</div>
+      <div class="subtle">{{ error }}</div>
+    </div>
+    {% endif %}
+    <form class="youtube-search-form" action="{{ url_for('youtube_capture') }}" method="get">
+      <input class="new-md-input" name="url" type="url" value="{{ raw_url }}" placeholder="https://www.youtube.com/watch?v=... or https://www.youtube.com/shorts/..." />
+      <button class="action" type="submit">LOAD URL</button>
+    </form>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">
+      <span>SAVE DETAILS</span>
+      <span class="subtle">LOCAL METADATA</span>
+    </div>
+    <form class="youtube-capture-form" action="{{ url_for('youtube_capture_save') }}" method="post">
+      <input type="hidden" name="url" value="{{ canonical_url }}" />
+      <input type="hidden" name="video_id" value="{{ video_id }}" />
+      <input type="hidden" name="source_url" value="{{ default_source_url }}" />
+
+      <label>
+        <span class="label">VIDEO / SHORT TITLE</span>
+        <input class="new-md-input" name="title" type="text" value="{{ default_title }}" {% if not video_id %}disabled{% endif %} />
+      </label>
+
+      <label>
+        <span class="label">SOURCE NAME</span>
+        <input class="new-md-input" name="source_name" type="text" value="{{ default_source_name }}" placeholder="Channel or creator name" {% if not video_id %}disabled{% endif %} />
+      </label>
+
+      {% if default_source_url %}
+      <div class="youtube-source-url">
+        <span class="label">SOURCE URL</span>
+        <a href="{{ default_source_url }}" target="_blank" rel="noopener noreferrer">{{ default_source_url }}</a>
+      </div>
+      {% endif %}
+
+      <label>
+        <span class="label">SOURCE ALIAS</span>
+        <input class="new-md-input" name="source_alias" type="text" value="{{ default_source_alias }}" placeholder="AI harnesses guy" {% if not video_id %}disabled{% endif %} />
+      </label>
+
+      <label>
+        <span class="label">SOURCE TAGS</span>
+        <input class="new-md-input" name="source_tags" type="text" value="{{ default_source_tags }}" placeholder="ai, agents, french, news" {% if not video_id %}disabled{% endif %} />
+      </label>
+
+      <label>
+        <span class="label">VIDEO / SHORT TAGS</span>
+        <input class="new-md-input" name="video_tags" type="text" value="{{ default_video_tags }}" placeholder="llama3, evals, demo" {% if not video_id %}disabled{% endif %} />
+      </label>
+
+      <label>
+        <span class="label">VIDEO / SHORT NOTES</span>
+        <textarea class="youtube-notes-input" name="video_notes" placeholder="What will future-you remember about this?" {% if not video_id %}disabled{% endif %}>{{ default_video_notes }}</textarea>
+      </label>
+
+      <button class="action" type="submit" {% if not video_id %}disabled{% endif %}>SAVE TO LCARS</button>
+    </form>
+  </div>
+</section>
+{% endblock %}

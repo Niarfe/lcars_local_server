@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}LCARS YouTube{% endblock %}
+{% block content %}
+<header class="hero">
+  <div>
+    <div class="eyebrow">SOURCE MEMORY</div>
+    <h1>YOUTUBE</h1>
+  </div>
+  <div class="hero-badges youtube-hero-actions">
+    <a class="badge linklike" href="{{ url_for('youtube_capture') }}">CAPTURE</a>
+    <form class="youtube-hero-form" action="{{ url_for('youtube_enrich') }}" method="post">
+      <button class="badge alt" type="submit">ENRICH INBOX</button>
+    </form>
+    <details class="youtube-setup youtube-setup-compact">
+      <summary>BOOKMARKLET</summary>
+      <div class="youtube-bookmarklet">
+        <a class="badge linklike" href="{{ bookmarklet }}">SAVE TO LCARS</a>
+        <span class="subtle">DRAG THIS TO CHROME BOOKMARKS</span>
+      </div>
+    </details>
+    <div class="badge gold">{{ source_count }} SOURCES</div>
+    <div class="badge blue">{{ video_count }} ITEMS</div>
+  </div>
+</header>
+
+<section class="panel youtube-search-strip">
+  <form class="youtube-search-row" action="{{ url_for('youtube_page') }}" method="get">
+    <span class="label">SEARCH</span>
+    <input class="new-md-input" name="q" type="search" value="{{ query }}" placeholder="SOURCE, TAG, NOTE, TITLE..." />
+    <button class="action" type="submit">SEARCH</button>
+    {% if query %}
+    <a class="action alt" href="{{ url_for('youtube_page') }}">CLEAR</a>
+    {% endif %}
+  </form>
+</section>
+
+{% if notice %}
+<section class="panel">
+  <div class="panel-header">
+    <span>YOUTUBE ENRICHMENT</span>
+    <span class="subtle">{{ notice }}</span>
+  </div>
+</section>
+{% endif %}
+
+<section class="panel">
+  <div class="panel-header">
+    <span>SAVED SOURCES</span>
+    <span class="subtle">{{ query or "ALL" }}</span>
+  </div>
+
+  {% if sources %}
+  <div class="youtube-source-grid">
+    {% for source in sources %}
+    <article class="youtube-source-card">
+      <a class="youtube-thumb-link" href="{{ url_for('youtube_source', source_id=source.id) }}">
+        {% if source.thumbnail_url %}
+        <img class="youtube-thumb" src="{{ source.thumbnail_url }}" alt="" loading="lazy" />
+        {% else %}
+        <div class="youtube-thumb youtube-thumb-empty">NO ITEM</div>
+        {% endif %}
+      </a>
+      <div class="youtube-card-body">
+        <div class="youtube-card-title">
+          <a href="{{ url_for('youtube_source', source_id=source.id) }}">{{ source.alias or source.name }}</a>
+        </div>
+        {% if source.alias and source.alias != source.name %}
+        <div class="subtle">{{ source.name }}</div>
+        {% endif %}
+        <div class="youtube-card-meta">
+          <span class="youtube-video-count" tabindex="0">
+            {{ source.video_count }} SAVED ITEM{% if source.video_count != 1 %}S{% endif %}
+            {% if source.video_titles %}
+            <span class="youtube-title-flyout">
+              {% for title in source.video_titles %}
+              <span>{{ title }}</span>
+              {% endfor %}
+            </span>
+            {% endif %}
+          </span>
+        </div>
+        {% if source.tags %}
+        <div class="youtube-tags">
+          {% for tag in source.tags %}
+          <span>{{ tag }}</span>
+          {% endfor %}
+        </div>
+        {% endif %}
+        {% if source.videos %}
+        <a class="youtube-latest-video" href="{{ source.latest_video.url }}" target="_blank" rel="noopener noreferrer">{{ source.latest_video.title }}</a>
+        {% endif %}
+        {% if source.video_count == 0 %}
+        <form class="youtube-card-actions" action="{{ url_for('youtube_source_delete', source_id=source.id) }}" method="post">
+          <button class="mini danger" type="submit" onclick="return confirm('Delete this empty source?')">DELETE</button>
+        </form>
+        {% endif %}
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-title">NO YOUTUBE SOURCES FOUND</div>
+    <div class="subtle">Capture a video or Short URL, or use the bookmarklet while watching YouTube.</div>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

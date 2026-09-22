@@ -1,0 +1,5 @@
+{
+  "bucket": "eolibrary",
+  "region": "us-east-1",
+  "prefix": "books"
+}

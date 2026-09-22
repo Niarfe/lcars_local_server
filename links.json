@@ -4,7 +4,7 @@
       "Outlook": "https://outlook.cloud.microsoft/mail/",
       "TEAMS": "https://teams.microsoft.com/v2/",
       "OUTLOOOK": "https://outlook.cloud.microsoft/mail/inbox/id/AAQkADA4MDU5N2RjLTY3ZTgtNDU2OC1iZTI3LTY5NWI4M2RiYmZiMgAQACXQR%2FnTZgFDhOtDdZY1cMM%3D",
-      "WORKDAY": "https://www.myworkday.com/uva/d/inst/13102!CK5mGhEKBggDEMenAhIHCgUI1A0QKRq-AQoGCAMQgawCErQBEjoI22gaCgoGCAMQp7EBEgAaEQoGCAMQ-qsCEgcKBQjjGRAvGgoKBggDEP_rAhIAGgoKBggDEICsAhIAEjoI22gaCgoGCAMQp7EBEgAaEQoGCAMQ-qsCEgcKBQjjGRASGgoKBggDEP_rAhIAGgoKBggDEICsAhIAEjoI22gSCQoFCAQQ0HYSABoSCgYIAxD_qwISCAoGCOMZEJECGgoKBggDEP_rAhIAGgoKBggDEICsAhIA*rCN_wcgpPIU~/cacheable-task/2997$2151.htmld",
+      "WORKDAY": "https://www.myworkday.com/uva/d/home.htmld",
       "Trello": "https://trello.com/b/TkJxEO42/course-refresh-board?filter=member:efrainolivares3"
     },
     "CANVAS": {
@@ -61,5 +61,27 @@
   },
   "AWS": {
     "INSTANCES US-WEST-2": "https://us-west-2.console.aws.amazon.com/ec2/home?region=us-west-2#Instances:"
+  },
+  "YTB": {
+    "FEMMES": {
+      "Ioana Roman": "https://www.youtube.com/@ioanaroman27",
+      "Olga Loiek": "https://www.youtube.com/@olgaloiek",
+      "Fran\u00e7ais avec Nelly": "https://www.youtube.com/@francaisavecnelly",
+      "Ruri Ohama": "https://www.youtube.com/@ruriohama",
+      "Maryam Gadery": "https://www.youtube.com/@maryamgadery",
+      "jefillysh": "https://www.youtube.com/@jefillysh"
+    },
+    "LOVEBUSTTER": {
+      "DEUTSCH": "https://www.youtube.com/@LoveBusterDeutsch"
+    },
+    "LOVEBUSTER": {
+      "DEUTSCH": "https://www.youtube.com/@LoveBusterDeutsch",
+      "FRANCE": "https://www.youtube.com/@LoveBusterFrance"
+    }
+  },
+  "AAA": {
+    "GMAIL": "https://mail.google.com/mail/u/0/#inbox",
+    "OUTLOOK": "https://outlook.cloud.microsoft/mail/",
+    "TEAMS": "https://teams.microsoft.com/v2/"
   }
 }

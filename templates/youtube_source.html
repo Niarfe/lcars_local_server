@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}YouTube Source{% endblock %}
+{% block content %}
+<header class="hero">
+  <div>
+    <div class="eyebrow">YOUTUBE SOURCE</div>
+    <h1>{{ source.alias or source.name }}</h1>
+  </div>
+  <div class="hero-badges">
+    <a class="badge linklike" href="{{ url_for('youtube_capture') }}">CAPTURE</a>
+    <a class="badge gold linklike" href="{{ url_for('youtube_page') }}">LIBRARY</a>
+  </div>
+</header>
+
+{% if notice %}
+<section class="panel">
+  <div class="panel-header">
+    <span>YOUTUBE LIBRARY</span>
+    <span class="subtle">{{ notice }}</span>
+  </div>
+</section>
+{% endif %}
+
+<section class="youtube-source-detail">
+  <div class="panel">
+    {% if source.thumbnail_url %}
+    <img class="youtube-capture-thumb" src="{{ source.thumbnail_url }}" alt="" />
+    {% endif %}
+    <div class="youtube-detail-title">{{ source.name }}</div>
+    {% if source.alias %}
+    <div class="subtle">{{ source.alias }}</div>
+    {% endif %}
+    {% if source.source_url %}
+    <div class="youtube-source-link">
+      <a class="badge linklike" href="{{ source.source_url }}" target="_blank" rel="noopener noreferrer">OPEN SOURCE</a>
+    </div>
+    {% endif %}
+    {% if source.tags %}
+    <div class="youtube-tags">
+      {% for tag in source.tags %}
+      <span>{{ tag }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% if source.videos|length == 0 %}
+    <form class="youtube-source-actions" action="{{ url_for('youtube_source_delete', source_id=source.id) }}" method="post">
+      <button class="action danger" type="submit" onclick="return confirm('Delete this empty source?')">DELETE EMPTY SOURCE</button>
+    </form>
+    {% endif %}
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">
+      <span>SAVED ITEMS</span>
+      <span class="subtle">{{ source.videos|length }}</span>
+    </div>
+    {% if source.videos %}
+    <div class="youtube-video-stack">
+      {% for video in source.videos %}
+      <article class="youtube-video-row">
+        {% if video.thumbnail_url %}
+        <a href="{{ video.url }}" target="_blank" rel="noopener noreferrer">
+          <img class="youtube-row-thumb" src="{{ video.thumbnail_url }}" alt="" loading="lazy" />
+        </a>
+        {% endif %}
+        <div class="youtube-video-body">
+          <a class="youtube-video-title" href="{{ video.url }}" target="_blank" rel="noopener noreferrer">{{ video.title }}</a>
+          <div class="subtle">{{ video.updated_at }}</div>
+          {% if video.tags %}
+          <div class="youtube-tags">
+            {% for tag in video.tags %}
+            <span>{{ tag }}</span>
+            {% endfor %}
+          </div>
+          {% endif %}
+          {% if video.notes %}
+          <div class="youtube-notes">{{ video.notes }}</div>
+          {% endif %}
+          <div class="youtube-video-actions">
+            <a class="mini" href="{{ url_for('youtube_video_edit', video_id=video.id) }}">UPDATE</a>
+            <a class="mini alt" href="{{ url_for('youtube_video_transcript', video_id=video.id) }}">TRANSCRIPT</a>
+            <form action="{{ url_for('youtube_video_delete', video_id=video.id) }}" method="post">
+              <button class="mini danger" type="submit" onclick="return confirm('Remove this saved item from LCARS?')">DELETE</button>
+            </form>
+          </div>
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+      <div class="empty-title">NO SAVED ITEMS</div>
+      <div class="subtle">Capture a YouTube URL for this source.</div>
+    </div>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

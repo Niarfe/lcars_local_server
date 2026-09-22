@@ -1,29 +1,121 @@
 {% extends "base.html" %}
 {% block title %}LCARS Books{% endblock %}
 {% block content %}
+{% set total_pdfs = (local_pdfs|length) + (s3_books|length) %}
+{% set total_books = (books|length) + total_pdfs %}
 <header class="hero">
   <div>
-    <div class="eyebrow">LOCAL READING LIBRARY</div>
+    <div class="eyebrow">LCARS LIBRARY</div>
     <h1>BOOK SHELF</h1>
   </div>
-  <div class="hero-badges"><div class="badge blue">{{ books|length }} BOOKS</div></div>
+  <div class="hero-badges">
+    <div class="badge blue">{{ total_pdfs }} PDFS</div>
+    <div class="badge">{{ books|length }} TEXTS</div>
+    <div class="badge alt">{{ total_books }} OBJECTS</div>
+  </div>
 </header>
+
 <section class="panel">
-  <div class="panel-header"><span>AVAILABLE TEXTS</span><span class="subtle">.TXT</span></div>
+  <div class="panel-header"><span>SEARCH</span><span class="subtle">TITLE / FILE</span></div>
+  <input class="library-filter" id="book-filter" type="search" placeholder="SEARCH LIBRARY" autocomplete="off" />
+  <div class="empty-state hidden" id="book-filter-empty">
+    <div class="empty-title">NO MATCHING BOOKS</div>
+  </div>
+</section>
+
+<section class="panel">
+  <div class="panel-header">
+    <span>S3 PDF LIBRARY</span>
+    <span class="subtle">{% if s3_library.configured %}READY{% else %}LOCAL CONFIG REQUIRED{% endif %}</span>
+  </div>
+  {% if not s3_library.configured %}
+  <div class="library-notice">S3 BASE CONFIG MISSING: {{ s3_library.missing|join(", ") }}</div>
+  {% endif %}
+  {% if s3_books %}
+  <div class="book-list" id="s3-book-list">
+    {% for book in s3_books %}
+    <div class="book-row book-file-row s3-book-row" data-book-search="{{ (book.name ~ ' ' ~ book.filename ~ ' ' ~ book.category)|lower }}">
+      {% if s3_library.configured %}
+      <button class="book-row-main book-open-main open-s3-book" type="button" data-book-id="{{ book.id }}" data-book-cached="{{ 'true' if book.cached else 'false' }}">
+        <div class="book-title">{{ book.name }}</div>
+        <div class="book-meta">
+          {% if book.category %}<span>{{ book.category }}</span>{% endif %}
+          <span>{{ book.filename }}</span>
+        </div>
+      </button>
+      {% else %}
+      <div class="book-row-main">
+        <div class="book-title">{{ book.name }}</div>
+        <div class="book-meta">
+          {% if book.category %}<span>{{ book.category }}</span>{% endif %}
+          <span>{{ book.filename }}</span>
+        </div>
+      </div>
+      {% endif %}
+      <div class="book-actions">
+        {% if s3_library.configured %}
+        <span class="mini static s3-cache-state {% if not book.cached %}alt{% endif %}">{% if book.cached %}LOCAL{% else %}REMOTE{% endif %}</span>
+        <button class="mini blue open-s3-book" type="button" data-book-id="{{ book.id }}" data-book-cached="{{ 'true' if book.cached else 'false' }}">OPEN</button>
+        <a class="mini linklike" href="{{ url_for('open_s3_book', book_id=book.id) }}" target="_blank" rel="noopener">WEB</a>
+        {% else %}
+        <span class="mini static alt">CONFIG</span>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-title">NO PDF CATALOG ENTRIES</div>
+    <div class="subtle">{{ s3_library.catalog_path }}</div>
+  </div>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <div class="panel-header"><span>LOCAL PDFS</span><span class="subtle">.PDF</span></div>
+  {% if local_pdfs %}
+  <div class="book-list" id="local-pdf-list">
+    {% for book in local_pdfs %}
+    <div class="book-row book-file-row local-pdf-row" data-book-search="{{ (book.name ~ ' ' ~ book.path ~ ' ' ~ book.location)|lower }}">
+      <a class="book-row-main" href="{{ url_for('local_pdf_page', book_id=book.id) }}" target="_blank" rel="noopener">
+        <div class="book-title">{{ book.name }}</div>
+        <div class="book-meta">
+          <span>{{ book.location }}</span>
+          <span>{{ book.path }}</span>
+        </div>
+      </a>
+      <a class="mini blue linklike" href="{{ url_for('local_pdf_page', book_id=book.id) }}" target="_blank" rel="noopener">OPEN</a>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <div class="empty-title">NO LOCAL PDFS FOUND</div>
+    <div class="subtle">Put .pdf files into the configured books folder, then reload this page.</div>
+  </div>
+  {% endif %}
+</section>
+
+<section class="panel">
+  <div class="panel-header"><span>LOCAL TEXTS</span><span class="subtle">.TXT</span></div>
   {% if books %}
-  <div class="book-list" id="book-list">
+  <div class="book-list" id="local-book-list">
     {% for book in books %}
-    <div class="book-row book-file-row">
+    <div class="book-row book-file-row local-book-row" data-book-search="{{ (book.name ~ ' ' ~ book.path)|lower }}">
       <a class="book-row-main" href="{{ url_for('reader_page', book_id=book.id) }}">
         <div class="book-title">{{ book.name }}</div>
-        <div class="subtle">{{ book.path }}</div>
+        <div class="book-meta"><span>{{ book.path }}</span></div>
       </a>
       <button class="mini alt delete-book" data-book-id="{{ book.id }}" data-book-name="{{ book.name }}">DELETE</button>
     </div>
     {% endfor %}
   </div>
   {% else %}
-  <div class="empty-state"><div class="empty-title">NO BOOKS FOUND</div><div class="subtle">Put UTF-8 .txt files into the books folder, then reload this page.</div></div>
+  <div class="empty-state">
+    <div class="empty-title">NO LOCAL TEXTS FOUND</div>
+    <div class="subtle">Put UTF-8 .txt files into the books folder, then reload this page.</div>
+  </div>
   {% endif %}
 </section>
 <script src="{{ url_for('static', filename='js/books.js') }}"></script>

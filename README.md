@@ -56,6 +56,7 @@ allowing ordinary Markdown to become visual dashboards while remaining portable.
 ### Books
 
 - Plain-text library
+- S3-backed PDF catalog
 - Comfortable reading interface
 - External storage support
 
@@ -152,6 +153,8 @@ LCARS is configured using a handful of simple JSON files.
 | `content_config.json` | External Markdown, Books, and Sounds folders |
 | `focus_config.json` | Focus timer settings and audio |
 | `aws_servers.json` | AWS EC2 instances |
+| `s3_library_catalog.json` | Commit-safe PDF titles and S3 object filenames |
+| `s3_library.local.json` | Local S3 bucket, region, and private prefix |
 | `links.json` | Dashboard links |
 | `jupyter_servers.json` | Local and remote Jupyter servers |
 
@@ -172,6 +175,69 @@ For example:
 ```
 
 This allows your notes and books to live in their own Git repository while LCARS itself can be upgraded independently.
+
+---
+
+# S3 PDF Library
+
+LCARS can present a PDF library stored in an S3 bucket without committing AWS credentials or private S3 base paths.
+
+Put public catalog entries in `s3_library_catalog.json`:
+
+```json
+{
+    "books": [
+        "01_BaMI-HTM-Overview.pdf"
+    ]
+}
+```
+
+Use object entries when you want custom titles, stable IDs, or categories:
+
+```json
+{
+    "books": [
+        {
+            "id": "beginning-aws-machine-intelligence",
+            "title": "Beginning AWS Machine Intelligence",
+            "filename": "01_BaMI-HTM-Overview.pdf",
+            "category": "Machine Learning"
+        }
+    ]
+}
+```
+
+Put private S3 base configuration in environment variables, ignored `.env`, or ignored `s3_library.local.json`:
+
+```bash
+S3_BUCKET=my-library
+S3_REGION=us-east-1
+S3_PREFIX=c94f7b28e813a50d6ae4
+S3_BOOK_CACHE_DIR=/Users/me/Documents/LCARS/books/s3_pdfs
+```
+
+The equivalent local JSON form is:
+
+```json
+{
+    "bucket": "my-library",
+    "region": "us-east-1",
+    "prefix": "c94f7b28e813a50d6ae4",
+    "cache_dir": "/Users/me/Documents/LCARS/books/s3_pdfs"
+}
+```
+
+`S3_BOOK_CACHE_DIR` is optional. If omitted, LCARS caches S3 PDFs under the configured `books_dir` in `s3_pdfs/`.
+
+LCARS resolves `/book/<id>` through the catalog and redirects to:
+
+```text
+https://BUCKET.s3.REGION.amazonaws.com/SECRET_PREFIX/FILENAME.pdf
+```
+
+The Books page `OPEN` button downloads a missing PDF to the local cache and then opens the cached file. The `WEB` button keeps the direct S3 fallback.
+
+No AWS access key is required to open PDFs when the selected bucket prefix allows anonymous read-only `s3:GetObject`.
 
 ---
 

@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}YouTube Transcript{% endblock %}
+{% block content %}
+<header class="hero">
+  <div>
+    <div class="eyebrow">YOUTUBE TRANSCRIPT</div>
+    <h1>{{ video.title }}</h1>
+  </div>
+  <div class="hero-badges">
+    <a class="badge linklike" href="{{ video.url }}" target="_blank" rel="noopener noreferrer">OPEN ITEM</a>
+    <a class="badge gold linklike" href="{{ url_for('youtube_video_edit', video_id=video.id) }}">UPDATE</a>
+    <a class="badge blue linklike" href="{{ url_for('youtube_source', source_id=video.source_id) }}">SOURCE</a>
+  </div>
+</header>
+
+{% if error %}
+<section class="panel">
+  <div class="panel-header">
+    <span>TRANSCRIPT ERROR</span>
+    <span class="subtle">{{ error }}</span>
+  </div>
+</section>
+{% endif %}
+
+<section class="youtube-capture-layout">
+  <div class="panel">
+    <div class="panel-header">
+      <span>VIDEO / SHORT</span>
+      <span class="subtle">{{ video.video_id }}</span>
+    </div>
+    {% if video.thumbnail_url %}
+    <img class="youtube-capture-thumb" src="{{ video.thumbnail_url }}" alt="" />
+    {% endif %}
+    <div class="youtube-detail-title">{{ video.title }}</div>
+    <div class="subtle">{{ video.source_name }}</div>
+    <div class="youtube-card-meta">PROXY {{ "ON" if using_proxy else "OFF" }}</div>
+
+    {% if existing_transcripts %}
+    <div class="youtube-transcript-list">
+      <div class="label">SAVED TRANSCRIPTS</div>
+      {% for transcript in existing_transcripts %}
+      <a class="badge linklike" href="{{ url_for('markdown_view', doc_id=transcript.markdown_rel_path) }}">
+        {{ transcript.language_name or transcript.language_code }}
+      </a>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">
+      <span>LANGUAGE</span>
+      <span class="subtle">
+        {% if probe.ambiguous %}CHOOSE TRACK{% else %}RECOMMENDED {{ probe.recommended_language or "" }}{% endif %}
+      </span>
+    </div>
+    {% if languages %}
+    <form class="youtube-capture-form" action="{{ url_for('youtube_video_transcript_fetch', video_id=video.id) }}" method="post">
+      <div class="youtube-language-list">
+        {% for language in languages %}
+        <label class="youtube-language-option">
+          <input
+            name="language_code"
+            type="radio"
+            value="{{ language.code }}"
+            {% if language.code == probe.recommended_language %}checked{% endif %}
+          />
+          <span>
+            <strong>{{ language.name }}</strong>
+            <em>{{ language.code }} / {{ language.kind }}</em>
+          </span>
+        </label>
+        {% endfor %}
+      </div>
+      <button class="action" type="submit">FETCH TRANSCRIPT</button>
+    </form>
+    {% else %}
+    <div class="empty-state">
+      <div class="empty-title">NO LANGUAGE TRACKS READY</div>
+      <div class="subtle">Transcript tracks could not be listed for this item.</div>
+    </div>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

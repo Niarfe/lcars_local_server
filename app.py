@@ -6,10 +6,15 @@ import platform
 import socket
 import re
 import shutil
+import sqlite3
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 from html import escape
 from typing import Any
+from urllib.error import URLError
+from urllib.parse import parse_qs, quote, urlencode, urlparse
+from urllib.request import Request, urlopen
 
 import markdown as mdlib
 import psutil
@@ -18,7 +23,7 @@ try:
     import boto3
 except ImportError:
     boto3 = None
-from flask import Flask, abort, jsonify, redirect, render_template, request, url_for
+from flask import Flask, abort, jsonify, redirect, render_template, request, send_file, url_for
 from jupyter_server.serverapp import list_running_servers
 
 app = Flask(__name__)
@@ -27,6 +32,11 @@ APP_DIR = Path(__file__).parent
 CONTENT_CONFIG_PATH = APP_DIR / "content_config.json"
 AWS_CONFIG_PATH = APP_DIR / "aws_servers.json"
 REMOTE_CONFIG_PATH = APP_DIR / "remote_jupyter_servers.json"
+S3_LIBRARY_CONFIG_PATH = APP_DIR / "s3_library.local.json"
+S3_LIBRARY_CATALOG_PATH = APP_DIR / "s3_library_catalog.json"
+S3_LIBRARY_DOTENV_PATH = APP_DIR / ".env"
+
+
 def expand_content_path(raw_path: str | Path, fallback: Path) -> Path:
     if not raw_path:
         return fallback
@@ -91,6 +101,12 @@ def ensure_content_dirs() -> None:
 ensure_content_dirs()
 LINKS_CONFIG_PATH = APP_DIR / "links.json"
 FOCUS_CONFIG_PATH = APP_DIR / "focus_config.json"
+YOUTUBE_DB_PATH = APP_DIR / "youtube_library.sqlite3"
+YOUTUBE_DOTENV_PATH = APP_DIR / ".env"
+YOUTUBE_INBOX_SOURCE = "YouTube Inbox"
+YOUTUBE_VIDEO_HOSTS = {"youtube.com", "m.youtube.com", "music.youtube.com"}
+YOUTUBE_DIRECT_VIDEO_PATHS = {"shorts", "embed", "live", "v"}
+YOUTUBE_VIDEO_ID_RE = re.compile(r"[A-Za-z0-9_-]{6,}")
 
 ALLOWED_ACTIONS: dict[str, list[str]] = {
     "open_documents": ["open", str(BASE_DIR / "Documents")],
@@ -227,14 +243,361 @@ def get_remote_jupyter_servers() -> list[dict[str, Any]]:
 def get_all_jupyter_servers() -> list[dict[str, Any]]:
     return get_local_jupyter_servers() + get_remote_jupyter_servers()
 
+
+def path_title(path: Path) -> str:
+    title = path.stem.replace("_", " ").replace("-", " ")
+    title = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", title)
+    for acronym in ("LCARS", "AWS", "S3", "PDF", "API", "URL", "HTM", "AI"):
+        title = re.sub(rf"\b{acronym}(?=[A-Z])", f"{acronym} ", title)
+    words = re.sub(r"\s+", " ", title).strip().split(" ")
+    return " ".join(word if word.isupper() else word.capitalize() for word in words)
+
+
+def relative_path_if_inside(path: Path, root: Path) -> str:
+    try:
+        return path.resolve().relative_to(root.resolve()).as_posix()
+    except ValueError:
+        return ""
+
+
 def get_books() -> list[dict[str, str]]:
     BOOKS_DIR.mkdir(exist_ok=True)
     books = []
     for p in sorted(BOOKS_DIR.rglob("*.txt"), key=lambda x: x.name.lower()):
         rel = p.relative_to(BOOKS_DIR).as_posix()
-        title = p.stem.replace("_", " ").replace("-", " ").title()
+        title = path_title(p)
         books.append({"id": rel, "name": title, "path": rel})
     return books
+
+
+def s3_library_config_path() -> Path:
+    raw_path = os.environ.get("S3_LIBRARY_CONFIG_PATH", str(S3_LIBRARY_CONFIG_PATH))
+    return Path(raw_path).expanduser().resolve()
+
+
+def s3_library_catalog_path() -> Path:
+    raw_path = os.environ.get("S3_LIBRARY_CATALOG_PATH", str(S3_LIBRARY_CATALOG_PATH))
+    return Path(raw_path).expanduser().resolve()
+
+
+def load_s3_library_config() -> dict[str, str]:
+    config = {
+        "bucket": "",
+        "region": "us-east-1",
+        "prefix": "",
+        "cache_dir": str(BOOKS_DIR / "s3_pdfs"),
+    }
+    config_path = s3_library_config_path()
+
+    if config_path.exists():
+        try:
+            raw = json.loads(config_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            raw = {}
+
+        if isinstance(raw, dict):
+            config["bucket"] = str(raw.get("bucket") or raw.get("s3_bucket") or "").strip()
+            config["region"] = str(raw.get("region") or raw.get("s3_region") or config["region"]).strip()
+            config["prefix"] = str(raw.get("prefix") or raw.get("s3_prefix") or "").strip()
+            config["cache_dir"] = str(
+                raw.get("cache_dir")
+                or raw.get("s3_book_cache_dir")
+                or config["cache_dir"]
+            ).strip()
+
+    dotenv_values = load_s3_dotenv_config()
+    config["bucket"] = str(dotenv_values.get("S3_BUCKET") or config["bucket"]).strip()
+    config["region"] = str(dotenv_values.get("S3_REGION") or config["region"] or "us-east-1").strip()
+    config["prefix"] = str(dotenv_values.get("S3_PREFIX") or config["prefix"]).strip()
+    config["cache_dir"] = str(dotenv_values.get("S3_BOOK_CACHE_DIR") or config["cache_dir"]).strip()
+
+    config["bucket"] = str(os.environ.get("S3_BUCKET") or config["bucket"]).strip()
+    config["region"] = str(os.environ.get("S3_REGION") or config["region"] or "us-east-1").strip()
+    config["prefix"] = str(os.environ.get("S3_PREFIX") or config["prefix"]).strip().strip("/")
+    config["cache_dir"] = str(os.environ.get("S3_BOOK_CACHE_DIR") or config["cache_dir"]).strip()
+    return config
+
+
+def load_s3_dotenv_config() -> dict[str, str]:
+    dotenv_path = Path(
+        os.environ.get("S3_LIBRARY_DOTENV_PATH", str(S3_LIBRARY_DOTENV_PATH))
+    ).expanduser().resolve()
+    if not dotenv_path.exists():
+        return {}
+
+    values: dict[str, str] = {}
+    for raw_line in dotenv_path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        clean_key = key.strip()
+        if clean_key.startswith("export "):
+            clean_key = clean_key.removeprefix("export ").strip()
+        if clean_key not in {"S3_BUCKET", "S3_REGION", "S3_PREFIX", "S3_BOOK_CACHE_DIR"}:
+            continue
+        values[clean_key] = value.strip().strip('"').strip("'")
+    return values
+
+
+def s3_library_status() -> dict[str, Any]:
+    config = load_s3_library_config()
+    dotenv_path = Path(
+        os.environ.get("S3_LIBRARY_DOTENV_PATH", str(S3_LIBRARY_DOTENV_PATH))
+    ).expanduser().resolve()
+    missing = [
+        label
+        for label, value in (
+            ("S3_BUCKET", config["bucket"]),
+            ("S3_REGION", config["region"]),
+            ("S3_PREFIX", config["prefix"]),
+        )
+        if not value
+    ]
+    return {
+        "configured": not missing,
+        "missing": missing,
+        "config_path": str(s3_library_config_path()),
+        "config_exists": s3_library_config_path().exists(),
+        "dotenv_path": str(dotenv_path),
+        "catalog_path": str(s3_library_catalog_path()),
+        "catalog_exists": s3_library_catalog_path().exists(),
+        "cache_dir": str(s3_book_cache_dir()),
+    }
+
+
+def s3_book_slug(value: str) -> str:
+    cleaned = value.strip().lower()
+    cleaned = re.sub(r"[^a-z0-9._:-]+", "-", cleaned)
+    cleaned = cleaned.strip("-._:")
+    return cleaned or "book"
+
+
+def clean_s3_catalog_filename(raw_filename: str) -> str:
+    filename = raw_filename.strip().replace("\\", "/")
+    parts = [part for part in filename.split("/") if part]
+    if not filename or filename.startswith("/") or any(part in {".", ".."} for part in parts):
+        raise ValueError("Invalid S3 catalog filename")
+    if not filename.lower().endswith(".pdf"):
+        raise ValueError("Only PDF catalog entries are supported")
+    return "/".join(parts)
+
+
+def normalize_s3_book_entry(
+    raw_entry: Any,
+    index: int,
+    used_ids: set[str],
+) -> dict[str, Any] | None:
+    if isinstance(raw_entry, str):
+        raw_filename = raw_entry
+        raw_title = ""
+        raw_id = ""
+        raw_category = ""
+    elif isinstance(raw_entry, dict):
+        raw_filename = str(
+            raw_entry.get("filename")
+            or raw_entry.get("path")
+            or raw_entry.get("key")
+            or ""
+        )
+        raw_title = str(raw_entry.get("title") or raw_entry.get("name") or "").strip()
+        raw_id = str(raw_entry.get("id") or "").strip()
+        raw_category = str(raw_entry.get("category") or raw_entry.get("section") or "").strip()
+    else:
+        return None
+
+    try:
+        filename = clean_s3_catalog_filename(raw_filename)
+    except ValueError:
+        return None
+
+    title = raw_title or Path(filename).stem.replace("_", " ").replace("-", " ").title()
+
+    base_id = s3_book_slug(raw_id or title or filename or f"book-{index + 1}")
+    book_id = base_id
+    counter = 2
+    while book_id in used_ids:
+        book_id = f"{base_id}-{counter}"
+        counter += 1
+    used_ids.add(book_id)
+
+    return {
+        "id": book_id,
+        "name": title,
+        "title": title,
+        "filename": filename,
+        "path": filename,
+        "category": raw_category,
+        "source": "s3",
+    }
+
+
+def s3_book_cache_dir() -> Path:
+    config = load_s3_library_config()
+    return expand_content_path(config.get("cache_dir", ""), BOOKS_DIR / "s3_pdfs")
+
+
+def s3_book_cache_path(book: dict[str, Any]) -> Path:
+    filename = clean_s3_catalog_filename(str(book.get("filename") or ""))
+    cache_root = s3_book_cache_dir().resolve()
+    cache_path = (cache_root / filename).resolve()
+    try:
+        cache_path.relative_to(cache_root)
+    except ValueError as exc:
+        raise ValueError("Invalid S3 book cache path") from exc
+    return cache_path
+
+
+def add_s3_book_cache_fields(book: dict[str, Any]) -> dict[str, Any]:
+    enriched = dict(book)
+    try:
+        cache_path = s3_book_cache_path(book)
+        cached = cache_path.exists() and cache_path.stat().st_size > 0
+    except (OSError, ValueError):
+        cache_path = Path("")
+        cached = False
+    enriched["cached"] = cached
+    enriched["cache_path"] = str(cache_path) if cache_path else ""
+    return enriched
+
+
+def get_s3_books() -> list[dict[str, Any]]:
+    catalog_path = s3_library_catalog_path()
+    if not catalog_path.exists():
+        return []
+
+    try:
+        raw = json.loads(catalog_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return []
+
+    raw_books = raw.get("books", []) if isinstance(raw, dict) else raw
+    if not isinstance(raw_books, list):
+        return []
+
+    used_ids: set[str] = set()
+    books = [
+        book
+        for index, raw_entry in enumerate(raw_books)
+        if (book := normalize_s3_book_entry(raw_entry, index, used_ids)) is not None
+    ]
+    return [
+        add_s3_book_cache_fields(book)
+        for book in sorted(books, key=lambda book: (book["category"].lower(), book["name"].lower()))
+    ]
+
+
+def get_local_pdfs() -> list[dict[str, str]]:
+    BOOKS_DIR.mkdir(exist_ok=True)
+    cache_root = s3_book_cache_dir().resolve()
+    cataloged_cache_paths = {
+        str(book.get("filename") or "")
+        for book in get_s3_books()
+        if book.get("filename")
+    }
+
+    pdfs: list[dict[str, str]] = []
+    seen_paths: set[Path] = set()
+
+    def add_pdf(path: Path, root: Path) -> None:
+        resolved = path.resolve()
+        if resolved in seen_paths:
+            return
+
+        cache_rel = relative_path_if_inside(resolved, cache_root)
+        if cache_rel and cache_rel in cataloged_cache_paths:
+            return
+
+        rel = relative_path_if_inside(resolved, root)
+        if not rel:
+            return
+
+        seen_paths.add(resolved)
+        pdfs.append({
+            "id": rel,
+            "name": path_title(path),
+            "path": rel,
+            "location": "S3 CACHE" if cache_rel else "BOOKS",
+        })
+
+    if BOOKS_DIR.exists():
+        for path in sorted(BOOKS_DIR.rglob("*.pdf"), key=lambda item: item.name.lower()):
+            add_pdf(path, BOOKS_DIR)
+
+    if cache_root.exists() and not relative_path_if_inside(cache_root, BOOKS_DIR.resolve()):
+        for path in sorted(cache_root.rglob("*.pdf"), key=lambda item: item.name.lower()):
+            add_pdf(path, cache_root)
+
+    return sorted(pdfs, key=lambda book: (book["location"].lower(), book["name"].lower()))
+
+
+def s3_book_by_id(book_id: str) -> dict[str, Any] | None:
+    return next((book for book in get_s3_books() if book["id"] == book_id), None)
+
+
+def quote_s3_key(key: str) -> str:
+    return "/".join(quote(part, safe="!$&'()*+,;=:@") for part in key.split("/"))
+
+
+def build_s3_book_url(filename: str) -> str:
+    config = load_s3_library_config()
+    missing = [
+        label
+        for label, value in (
+            ("S3_BUCKET", config["bucket"]),
+            ("S3_REGION", config["region"]),
+            ("S3_PREFIX", config["prefix"]),
+        )
+        if not value
+    ]
+    if missing:
+        raise ValueError(f"S3 library is missing: {', '.join(missing)}")
+
+    safe_filename = clean_s3_catalog_filename(filename)
+    key = f"{config['prefix'].strip('/')}/{safe_filename}"
+    return f"https://{config['bucket']}.s3.{config['region']}.amazonaws.com/{quote_s3_key(key)}"
+
+
+def ensure_s3_book_cached(book: dict[str, Any]) -> dict[str, Any]:
+    cache_path = s3_book_cache_path(book)
+    if cache_path.exists() and cache_path.stat().st_size > 0:
+        return {"path": cache_path, "downloaded": False}
+
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    partial_path = cache_path.with_name(f".{cache_path.name}.part")
+    request_obj = Request(
+        build_s3_book_url(str(book.get("filename") or "")),
+        headers={"User-Agent": "LCARS Local Server/1.0"},
+    )
+
+    try:
+        with urlopen(request_obj, timeout=300) as response:
+            with partial_path.open("wb") as output:
+                shutil.copyfileobj(response, output)
+        partial_path.replace(cache_path)
+    except (TimeoutError, URLError, OSError) as exc:
+        if partial_path.exists():
+            partial_path.unlink()
+        raise RuntimeError(f"Download failed: {exc}") from exc
+
+    if not cache_path.exists() or cache_path.stat().st_size <= 0:
+        raise RuntimeError("Download failed: empty PDF")
+
+    return {"path": cache_path, "downloaded": True}
+
+
+def open_local_file(path: Path) -> None:
+    system = platform.system()
+    try:
+        if system == "Darwin":
+            subprocess.Popen(["open", str(path)])
+        elif system == "Windows":
+            os.startfile(str(path))  # type: ignore[attr-defined]
+        else:
+            subprocess.Popen(["xdg-open", str(path)])
+    except OSError as exc:
+        raise RuntimeError(f"Could not open local file: {exc}") from exc
+
 
 def safe_book_path(book_id: str) -> Path:
     candidate = (BOOKS_DIR / book_id).resolve()
@@ -243,6 +606,34 @@ def safe_book_path(book_id: str) -> Path:
     if candidate.suffix.lower() != ".txt":
         raise ValueError("Only .txt files are supported")
     return candidate
+
+
+def safe_local_pdf_path(book_id: str) -> Path:
+    clean_id = book_id.strip().replace("\\", "/")
+    if not clean_id or clean_id.startswith("/") or "\x00" in clean_id:
+        raise ValueError("Invalid PDF path")
+
+    roots = []
+    for root in (BOOKS_DIR.resolve(), s3_book_cache_dir().resolve()):
+        if root not in roots:
+            roots.append(root)
+
+    first_candidate: Path | None = None
+    for root in roots:
+        candidate = (root / clean_id).resolve()
+        if not relative_path_if_inside(candidate, root):
+            continue
+        if candidate.suffix.lower() != ".pdf":
+            raise ValueError("Only .pdf files are supported")
+        if candidate.exists():
+            return candidate
+        if first_candidate is None:
+            first_candidate = candidate
+
+    if first_candidate is None:
+        raise ValueError("Invalid PDF path")
+    return first_candidate
+
 
 def get_markdown_docs() -> list[dict[str, str]]:
     MARKDOWN_DIR.mkdir(exist_ok=True)
@@ -843,6 +1234,861 @@ def get_markdown_folders() -> list[str]:
     return sorted(folders, key=lambda x: x.lower())
 
 
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def get_youtube_db() -> sqlite3.Connection:
+    conn = sqlite3.connect(YOUTUBE_DB_PATH)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    ensure_youtube_schema(conn)
+    return conn
+
+
+def ensure_youtube_schema(conn: sqlite3.Connection) -> None:
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS youtube_sources (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            alias TEXT NOT NULL DEFAULT '',
+            source_url TEXT NOT NULL DEFAULT '',
+            notes TEXT NOT NULL DEFAULT '',
+            thumbnail_url TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS youtube_videos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_id INTEGER NOT NULL REFERENCES youtube_sources(id) ON DELETE CASCADE,
+            video_id TEXT NOT NULL UNIQUE,
+            url TEXT NOT NULL,
+            title TEXT NOT NULL,
+            thumbnail_url TEXT NOT NULL DEFAULT '',
+            notes TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS youtube_tags (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL UNIQUE
+        );
+
+        CREATE TABLE IF NOT EXISTS youtube_source_tags (
+            source_id INTEGER NOT NULL REFERENCES youtube_sources(id) ON DELETE CASCADE,
+            tag_id INTEGER NOT NULL REFERENCES youtube_tags(id) ON DELETE CASCADE,
+            PRIMARY KEY (source_id, tag_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS youtube_video_tags (
+            video_id INTEGER NOT NULL REFERENCES youtube_videos(id) ON DELETE CASCADE,
+            tag_id INTEGER NOT NULL REFERENCES youtube_tags(id) ON DELETE CASCADE,
+            PRIMARY KEY (video_id, tag_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS youtube_transcripts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            video_id INTEGER NOT NULL REFERENCES youtube_videos(id) ON DELETE CASCADE,
+            language_code TEXT NOT NULL,
+            language_name TEXT NOT NULL DEFAULT '',
+            is_generated INTEGER NOT NULL DEFAULT 0,
+            markdown_rel_path TEXT NOT NULL UNIQUE,
+            segment_count INTEGER NOT NULL DEFAULT 0,
+            fetched_at TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(video_id, language_code)
+        );
+        """
+    )
+    ensure_sqlite_column(conn, "youtube_sources", "source_url", "TEXT NOT NULL DEFAULT ''")
+
+
+def ensure_sqlite_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+    columns = {str(row[1]) for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    if column not in columns:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
+def normalize_youtube_url_value(raw_url: str) -> str:
+    value = raw_url.strip()
+    if not value:
+        raise ValueError("YouTube URL is required")
+    if "://" not in value and ("youtube." in value.lower() or "youtu.be" in value.lower()):
+        value = f"https://{value}"
+    return value
+
+
+def parse_youtube_url(raw_url: str) -> tuple[str, str]:
+    value = normalize_youtube_url_value(raw_url)
+    parsed = urlparse(value)
+    host = parsed.netloc.lower().split("@")[-1].split(":")[0].removeprefix("www.")
+    path_parts = [part for part in parsed.path.split("/") if part]
+
+    video_id = ""
+    url_kind = "video"
+    if host in YOUTUBE_VIDEO_HOSTS:
+        query = parse_qs(parsed.query)
+        video_id = (query.get("v") or [""])[0]
+        if path_parts and path_parts[0] == "shorts":
+            url_kind = "short"
+        if not video_id and path_parts and path_parts[0] in YOUTUBE_DIRECT_VIDEO_PATHS:
+            video_id = path_parts[1] if len(path_parts) > 1 else ""
+    elif host == "youtube-nocookie.com" and path_parts and path_parts[0] in YOUTUBE_DIRECT_VIDEO_PATHS:
+        video_id = path_parts[1] if len(path_parts) > 1 else ""
+    elif host == "youtu.be" and path_parts:
+        video_id = path_parts[0]
+
+    video_id = video_id.strip()
+    if not YOUTUBE_VIDEO_ID_RE.fullmatch(video_id):
+        raise ValueError("Could not find a YouTube video id in that URL")
+    return video_id, url_kind
+
+
+def parse_youtube_video_id(raw_url: str) -> str:
+    video_id, _url_kind = parse_youtube_url(raw_url)
+    return video_id
+
+
+def canonical_youtube_url(video_id: str, url_kind: str = "video") -> str:
+    if url_kind == "short":
+        return f"https://www.youtube.com/shorts/{video_id}"
+    return f"https://www.youtube.com/watch?v={video_id}"
+
+
+def youtube_thumbnail_url(video_id: str) -> str:
+    return f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
+
+
+def clean_youtube_title(raw_title: str) -> str:
+    title = re.sub(r"\s+", " ", raw_title.strip())
+    return re.sub(r"\s+-\s+YouTube\s*$", "", title, flags=re.IGNORECASE)
+
+
+def fetch_youtube_oembed(video_url: str) -> dict[str, str]:
+    endpoint = "https://www.youtube.com/oembed?" + urlencode({"url": video_url, "format": "json"})
+    request_obj = Request(endpoint, headers={"User-Agent": "LCARS Local Server/1.0"})
+    try:
+        with urlopen(request_obj, timeout=4) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (TimeoutError, URLError, OSError, ValueError, json.JSONDecodeError):
+        return {}
+
+    if not isinstance(payload, dict):
+        return {}
+
+    return {
+        "title": clean_youtube_title(str(payload.get("title") or "")),
+        "source_name": str(payload.get("author_name") or "").strip(),
+        "source_url": str(payload.get("author_url") or "").strip(),
+        "thumbnail_url": str(payload.get("thumbnail_url") or "").strip(),
+    }
+
+
+def youtube_metadata_defaults(
+    video_id: str,
+    raw_title: str = "",
+    raw_source_name: str = "",
+    raw_source_url: str = "",
+    raw_url: str = "",
+) -> dict[str, str]:
+    url_kind = "video"
+    if raw_url:
+        try:
+            parsed_video_id, parsed_url_kind = parse_youtube_url(raw_url)
+            if parsed_video_id == video_id:
+                url_kind = parsed_url_kind
+        except ValueError:
+            url_kind = "video"
+
+    url = canonical_youtube_url(video_id, url_kind)
+    metadata = fetch_youtube_oembed(url)
+    if not metadata and url_kind == "short":
+        metadata = fetch_youtube_oembed(canonical_youtube_url(video_id))
+    fallback_title = f"YouTube video {video_id}"
+    title = metadata.get("title") or clean_youtube_title(raw_title) or fallback_title
+    source_name = metadata.get("source_name") or raw_source_name.strip() or YOUTUBE_INBOX_SOURCE
+    return {
+        "url": url,
+        "title": title,
+        "source_name": source_name,
+        "source_url": metadata.get("source_url") or raw_source_url.strip(),
+        "thumbnail_url": metadata.get("thumbnail_url") or youtube_thumbnail_url(video_id),
+    }
+
+
+def parse_tag_list(raw_tags: str) -> list[str]:
+    tags: list[str] = []
+    seen: set[str] = set()
+    for raw in re.split(r"[,#\n]", raw_tags):
+        tag = re.sub(r"\s+", " ", raw.strip().lower())
+        if not tag or tag in seen:
+            continue
+        seen.add(tag)
+        tags.append(tag)
+    return tags
+
+
+def transcript_client() -> Any:
+    try:
+        from yt_transcripts import TranscriptClient
+    except ImportError as exc:
+        raise RuntimeError(
+            "yt_transcripts is not installed. Run: pip install -e "
+            "/Users/praedator/Documents/COMICS/repos/mini_data_pipeline"
+        ) from exc
+
+    if not hasattr(app, "_yt_transcript_client"):
+        app._yt_transcript_client = TranscriptClient(dotenv_path=YOUTUBE_DOTENV_PATH)  # type: ignore[attr-defined]
+    return app._yt_transcript_client  # type: ignore[attr-defined]
+
+
+def safe_language_slug(language_code: str) -> str:
+    slug = re.sub(r"[^a-z0-9_-]+", "_", language_code.lower()).strip("_")
+    return slug or "auto"
+
+
+def youtube_transcript_rel_path(video: dict[str, Any], language_code: str) -> str:
+    source_slug = markdown_slug_from_title(str(video.get("source_name") or "youtube"))
+    title_slug = markdown_slug_from_title(str(video.get("title") or video.get("video_id") or "transcript"))
+    video_slug = markdown_slug_from_title(str(video.get("video_id") or "video"))
+    language_slug = safe_language_slug(language_code)
+    return f"yt_transcripts/{source_slug}/{title_slug}_{video_slug}_{language_slug}.md"
+
+
+def youtube_transcript_abs_path(rel_path: str) -> Path:
+    path = (MARKDOWN_DIR / rel_path).resolve()
+    if not str(path).startswith(str(MARKDOWN_DIR.resolve())):
+        raise ValueError("Transcript path must stay inside markdown directory")
+    return path
+
+
+def markdown_link(label: str, url: str) -> str:
+    clean_label = str(label or url).replace("[", "\\[").replace("]", "\\]")
+    clean_url = str(url or "").replace(")", "%29").replace("(", "%28")
+    return f"[{clean_label}]({clean_url})" if clean_url else clean_label
+
+
+def transcript_value(doc: Any, key: str, default: Any = "") -> Any:
+    if isinstance(doc, dict):
+        return doc.get(key, default)
+    return getattr(doc, key, default)
+
+
+def youtube_transcript_markdown(video: dict[str, Any], doc: Any) -> str:
+    title = str(video.get("title") or transcript_value(doc, "title") or video.get("video_id") or "YouTube Transcript")
+    source_name = str(video.get("source_name") or transcript_value(doc, "channel") or "")
+    source_url = str(video.get("source_url") or transcript_value(doc, "channel_url") or "")
+    language_code = str(transcript_value(doc, "language_code") or "")
+    language_name = str(transcript_value(doc, "language_name") or language_code)
+    generated = "yes" if transcript_value(doc, "is_generated") else "no"
+    source_tags = ", ".join(video.get("source_tags", [])) or "-"
+    video_tags = ", ".join(video.get("tags", [])) or "-"
+    transcript = str(transcript_value(doc, "cleaned_text") or "").strip()
+
+    lines = [
+        f"# {title}",
+        "",
+        "## Metadata",
+        "",
+        f"- Source: {markdown_link(source_name, source_url)}",
+        f"- Video: {markdown_link(str(video.get('url') or transcript_value(doc, 'url') or ''), str(video.get('url') or transcript_value(doc, 'url') or ''))}",
+        f"- YouTube ID: `{video.get('video_id') or transcript_value(doc, 'video_id') or ''}`",
+        f"- Language: {language_name} (`{language_code}`)",
+        f"- Auto-generated: {generated}",
+        f"- Segment count: {transcript_value(doc, 'segment_count') or 0}",
+        f"- Fetched at: {transcript_value(doc, 'fetched_at') or ''}",
+        f"- Source tags: {source_tags}",
+        f"- Video tags: {video_tags}",
+        "",
+        "## Transcript",
+        "",
+        transcript,
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def get_or_create_youtube_tag(conn: sqlite3.Connection, name: str) -> int:
+    conn.execute("INSERT OR IGNORE INTO youtube_tags (name) VALUES (?)", (name,))
+    row = conn.execute("SELECT id FROM youtube_tags WHERE name = ?", (name,)).fetchone()
+    if not row:
+        raise RuntimeError("Could not create YouTube tag")
+    return int(row["id"])
+
+
+def replace_youtube_tags(
+    conn: sqlite3.Connection,
+    table: str,
+    owner_column: str,
+    owner_id: int,
+    tags: list[str],
+) -> None:
+    if table not in {"youtube_source_tags", "youtube_video_tags"}:
+        raise ValueError("Invalid tag table")
+    if owner_column not in {"source_id", "video_id"}:
+        raise ValueError("Invalid tag owner")
+
+    conn.execute(f"DELETE FROM {table} WHERE {owner_column} = ?", (owner_id,))
+    for tag in tags:
+        tag_id = get_or_create_youtube_tag(conn, tag)
+        conn.execute(
+            f"INSERT OR IGNORE INTO {table} ({owner_column}, tag_id) VALUES (?, ?)",
+            (owner_id, tag_id),
+        )
+
+
+def delete_empty_youtube_sources(conn: sqlite3.Connection) -> int:
+    cursor = conn.execute(
+        """
+        DELETE FROM youtube_sources
+        WHERE id NOT IN (SELECT DISTINCT source_id FROM youtube_videos)
+        """
+    )
+    return int(cursor.rowcount if cursor.rowcount is not None else 0)
+
+
+def delete_empty_youtube_source(conn: sqlite3.Connection, source_id: int) -> bool:
+    video_count = conn.execute(
+        "SELECT COUNT(*) AS video_count FROM youtube_videos WHERE source_id = ?",
+        (source_id,),
+    ).fetchone()
+    if video_count and int(video_count["video_count"]) > 0:
+        return False
+
+    cursor = conn.execute("DELETE FROM youtube_sources WHERE id = ?", (source_id,))
+    return int(cursor.rowcount if cursor.rowcount is not None else 0) > 0
+
+
+def youtube_tags_for(conn: sqlite3.Connection, table: str, owner_column: str) -> dict[int, list[str]]:
+    if table not in {"youtube_source_tags", "youtube_video_tags"}:
+        raise ValueError("Invalid tag table")
+    if owner_column not in {"source_id", "video_id"}:
+        raise ValueError("Invalid tag owner")
+
+    rows = conn.execute(
+        f"""
+        SELECT link.{owner_column} AS owner_id, tag.name
+        FROM {table} link
+        JOIN youtube_tags tag ON tag.id = link.tag_id
+        ORDER BY tag.name
+        """
+    ).fetchall()
+    tags: dict[int, list[str]] = {}
+    for row in rows:
+        tags.setdefault(int(row["owner_id"]), []).append(str(row["name"]))
+    return tags
+
+
+def upsert_youtube_source(
+    conn: sqlite3.Connection,
+    source_name: str,
+    source_alias: str,
+    source_url: str,
+    thumbnail_url: str,
+    timestamp: str,
+    replace_source_identity: bool = False,
+) -> int:
+    source_row = conn.execute(
+        """
+        SELECT *
+        FROM youtube_sources
+        WHERE (? != '' AND source_url = ?)
+           OR lower(name) = lower(?)
+           OR (? != '' AND lower(alias) = lower(?))
+        ORDER BY id
+        LIMIT 1
+        """,
+        (source_url, source_url, source_name, source_alias, source_alias),
+    ).fetchone()
+
+    if source_row:
+        source_id = int(source_row["id"])
+        if replace_source_identity:
+            next_alias = source_alias
+            next_source_url = source_url
+        else:
+            next_alias = source_alias or str(source_row["alias"] or "")
+            next_source_url = source_url or str(source_row["source_url"] or "")
+        conn.execute(
+            """
+            UPDATE youtube_sources
+            SET name = ?, alias = ?, source_url = ?, thumbnail_url = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (source_name, next_alias, next_source_url, thumbnail_url, timestamp, source_id),
+        )
+        return source_id
+
+    cursor = conn.execute(
+        """
+        INSERT INTO youtube_sources
+            (name, alias, source_url, thumbnail_url, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (source_name, source_alias, source_url, thumbnail_url, timestamp, timestamp),
+    )
+    return int(cursor.lastrowid)
+
+
+def save_youtube_video(form: dict[str, str]) -> dict[str, Any]:
+    raw_url = form.get("url", "").strip()
+    video_id = form.get("video_id", "").strip() or parse_youtube_video_id(raw_url)
+    submitted_title = clean_youtube_title(form.get("title", ""))
+    submitted_source_name = form.get("source_name", "").strip()
+    submitted_source_url = form.get("source_url", "").strip()
+    metadata = youtube_metadata_defaults(
+        video_id,
+        submitted_title,
+        submitted_source_name,
+        submitted_source_url,
+        raw_url,
+    )
+    url = metadata["url"]
+    title = submitted_title
+    if not title or title == f"YouTube video {video_id}":
+        title = metadata["title"]
+    source_name = submitted_source_name
+    if not source_name or source_name.lower() == YOUTUBE_INBOX_SOURCE.lower():
+        source_name = metadata["source_name"]
+    source_alias = form.get("source_alias", "").strip()
+    replace_source_identity = form.get("replace_source_identity", "").strip() == "1"
+    source_url = submitted_source_url if replace_source_identity else metadata["source_url"]
+    raw_source_tags = form.get("source_tags", "")
+    replace_source_tags = form.get("replace_source_tags", "").strip() == "1"
+    source_tags = parse_tag_list(raw_source_tags)
+    video_tags = parse_tag_list(form.get("video_tags", ""))
+    video_notes = form.get("video_notes", "").strip()
+
+    if not source_name:
+        source_name = source_alias or YOUTUBE_INBOX_SOURCE
+
+    timestamp = now_iso()
+    thumbnail_url = metadata["thumbnail_url"]
+
+    with get_youtube_db() as conn:
+        source_id = upsert_youtube_source(
+            conn,
+            source_name,
+            source_alias,
+            source_url,
+            thumbnail_url,
+            timestamp,
+            replace_source_identity,
+        )
+
+        video_row = conn.execute(
+            "SELECT id FROM youtube_videos WHERE video_id = ?",
+            (video_id,),
+        ).fetchone()
+
+        if video_row:
+            saved_video_id = int(video_row["id"])
+            conn.execute(
+                """
+                UPDATE youtube_videos
+                SET source_id = ?, url = ?, title = ?, thumbnail_url = ?,
+                    notes = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (source_id, url, title, thumbnail_url, video_notes, timestamp, saved_video_id),
+            )
+        else:
+            cursor = conn.execute(
+                """
+                INSERT INTO youtube_videos
+                    (source_id, video_id, url, title, thumbnail_url, notes, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (source_id, video_id, url, title, thumbnail_url, video_notes, timestamp, timestamp),
+            )
+            saved_video_id = int(cursor.lastrowid)
+
+        if replace_source_tags or raw_source_tags.strip():
+            replace_youtube_tags(conn, "youtube_source_tags", "source_id", source_id, source_tags)
+        replace_youtube_tags(conn, "youtube_video_tags", "video_id", saved_video_id, video_tags)
+        delete_empty_youtube_sources(conn)
+        conn.commit()
+
+    return {
+        "source_id": source_id,
+        "video_id": saved_video_id,
+        "youtube_video_id": video_id,
+    }
+
+
+def enrich_youtube_library(limit: int = 25) -> dict[str, int]:
+    with get_youtube_db() as conn:
+        candidates = [dict(row) for row in conn.execute(
+            """
+            SELECT video.*,
+                   source.name AS current_source_name,
+                   source.source_url AS current_source_url
+            FROM youtube_videos video
+            JOIN youtube_sources source ON source.id = video.source_id
+            WHERE lower(source.name) = lower(?)
+               OR video.title = 'YouTube video ' || video.video_id
+               OR video.thumbnail_url = ''
+            ORDER BY video.updated_at DESC
+            LIMIT ?
+            """,
+            (YOUTUBE_INBOX_SOURCE, limit),
+        ).fetchall()]
+
+        updated = 0
+        skipped = 0
+        for video in candidates:
+            video_id = str(video["video_id"])
+            metadata = fetch_youtube_oembed(canonical_youtube_url(video_id))
+            source_name = str(metadata.get("source_name") or "").strip()
+            if not source_name:
+                skipped += 1
+                continue
+
+            timestamp = now_iso()
+            thumbnail_url = (
+                str(metadata.get("thumbnail_url") or "").strip()
+                or str(video.get("thumbnail_url") or "")
+                or youtube_thumbnail_url(video_id)
+            )
+            source_id = upsert_youtube_source(
+                conn,
+                source_name,
+                "",
+                str(metadata.get("source_url") or "").strip(),
+                thumbnail_url,
+                timestamp,
+            )
+            current_title = str(video.get("title") or "")
+            default_title = f"YouTube video {video_id}"
+            next_title = str(metadata.get("title") or "").strip()
+            if current_title and current_title != default_title:
+                next_title = current_title
+            if not next_title:
+                next_title = default_title
+
+            changed = (
+                source_id != int(video["source_id"])
+                or next_title != current_title
+                or thumbnail_url != str(video.get("thumbnail_url") or "")
+            )
+            conn.execute(
+                """
+                UPDATE youtube_videos
+                SET source_id = ?, title = ?, thumbnail_url = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (source_id, next_title, thumbnail_url, timestamp, int(video["id"])),
+            )
+            if changed:
+                updated += 1
+
+        delete_empty_youtube_sources(conn)
+        conn.commit()
+
+    return {"checked": len(candidates), "updated": updated, "skipped": skipped}
+
+
+def delete_youtube_video(video_id: int) -> dict[str, Any]:
+    with get_youtube_db() as conn:
+        row = conn.execute(
+            "SELECT id, source_id FROM youtube_videos WHERE id = ?",
+            (video_id,),
+        ).fetchone()
+        if not row:
+            return {"deleted": False, "source_id": 0, "source_deleted": False}
+
+        source_id = int(row["source_id"])
+        conn.execute("DELETE FROM youtube_videos WHERE id = ?", (video_id,))
+        source_deleted = delete_empty_youtube_source(conn, source_id)
+        conn.commit()
+
+    return {"deleted": True, "source_id": source_id, "source_deleted": source_deleted}
+
+
+def delete_youtube_source(source_id: int, require_empty: bool = True) -> dict[str, int]:
+    with get_youtube_db() as conn:
+        row = conn.execute(
+            """
+            SELECT source.id, COUNT(video.id) AS video_count
+            FROM youtube_sources source
+            LEFT JOIN youtube_videos video ON video.source_id = source.id
+            WHERE source.id = ?
+            GROUP BY source.id
+            """,
+            (source_id,),
+        ).fetchone()
+        if not row:
+            return {"deleted": 0, "video_count": 0}
+
+        video_count = int(row["video_count"])
+        if require_empty and video_count:
+            raise ValueError("Delete saved videos before deleting this source")
+
+        conn.execute("DELETE FROM youtube_sources WHERE id = ?", (source_id,))
+        conn.commit()
+
+    return {"deleted": 1, "video_count": video_count}
+
+
+def get_youtube_sources(query: str = "") -> list[dict[str, Any]]:
+    normalized_query = query.strip().lower()
+    with get_youtube_db() as conn:
+        source_tags = youtube_tags_for(conn, "youtube_source_tags", "source_id")
+        video_tags = youtube_tags_for(conn, "youtube_video_tags", "video_id")
+        sources = [dict(row) for row in conn.execute(
+            """
+            SELECT source.*,
+                   COUNT(video.id) AS video_count,
+                   MAX(video.updated_at) AS last_saved_at
+            FROM youtube_sources source
+            LEFT JOIN youtube_videos video ON video.source_id = source.id
+            GROUP BY source.id
+            ORDER BY COALESCE(MAX(video.updated_at), source.updated_at) DESC, source.name
+            """
+        ).fetchall()]
+        videos = [dict(row) for row in conn.execute(
+            """
+            SELECT video.*
+            FROM youtube_videos video
+            ORDER BY video.updated_at DESC
+            """
+        ).fetchall()]
+
+    videos_by_source: dict[int, list[dict[str, Any]]] = {}
+    for video in videos:
+        video["tags"] = video_tags.get(int(video["id"]), [])
+        videos_by_source.setdefault(int(video["source_id"]), []).append(video)
+
+    cards: list[dict[str, Any]] = []
+    for source in sources:
+        source_id = int(source["id"])
+        source_videos = videos_by_source.get(source_id, [])
+        latest_video = source_videos[0] if source_videos else None
+        tags = source_tags.get(source_id, [])
+        thumbnail = (
+            str(latest_video["thumbnail_url"])
+            if latest_video and latest_video.get("thumbnail_url")
+            else str(source.get("thumbnail_url") or "")
+        )
+        search_blob = " ".join(
+            [
+                str(source.get("name") or ""),
+                str(source.get("alias") or ""),
+                str(source.get("source_url") or ""),
+                str(source.get("notes") or ""),
+                " ".join(tags),
+                " ".join(
+                    " ".join(
+                        [
+                            str(video.get("title") or ""),
+                            str(video.get("notes") or ""),
+                            " ".join(video.get("tags", [])),
+                        ]
+                    )
+                    for video in source_videos
+                ),
+            ]
+        ).lower()
+        if normalized_query and normalized_query not in search_blob:
+            continue
+
+        source["tags"] = tags
+        source["videos"] = source_videos[:1]
+        source["video_titles"] = [str(video.get("title") or "") for video in source_videos]
+        source["latest_video"] = latest_video
+        source["thumbnail_url"] = thumbnail
+        cards.append(source)
+
+    return cards
+
+
+def get_youtube_source(source_id: int) -> dict[str, Any] | None:
+    with get_youtube_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM youtube_sources WHERE id = ?",
+            (source_id,),
+        ).fetchone()
+        if not row:
+            return None
+
+        source = dict(row)
+        source_tags = youtube_tags_for(conn, "youtube_source_tags", "source_id")
+        video_tags = youtube_tags_for(conn, "youtube_video_tags", "video_id")
+        videos = [dict(video) for video in conn.execute(
+            """
+            SELECT *
+            FROM youtube_videos
+            WHERE source_id = ?
+            ORDER BY updated_at DESC
+            """,
+            (source_id,),
+        ).fetchall()]
+
+    source["tags"] = source_tags.get(source_id, [])
+    for video in videos:
+        video["tags"] = video_tags.get(int(video["id"]), [])
+    source["videos"] = videos
+    source["thumbnail_url"] = (
+        str(videos[0]["thumbnail_url"])
+        if videos and videos[0].get("thumbnail_url")
+        else str(source.get("thumbnail_url") or "")
+    )
+    return source
+
+
+def get_youtube_video(video_id: int) -> dict[str, Any] | None:
+    with get_youtube_db() as conn:
+        row = conn.execute(
+            """
+            SELECT video.*,
+                   source.name AS source_name,
+                   source.alias AS source_alias,
+                   source.source_url AS source_url,
+                   source.thumbnail_url AS source_thumbnail_url
+            FROM youtube_videos video
+            JOIN youtube_sources source ON source.id = video.source_id
+            WHERE video.id = ?
+            """,
+            (video_id,),
+        ).fetchone()
+        if not row:
+            return None
+
+        video = dict(row)
+        source_tags = youtube_tags_for(conn, "youtube_source_tags", "source_id")
+        video_tags = youtube_tags_for(conn, "youtube_video_tags", "video_id")
+
+    video["source_tags"] = source_tags.get(int(video["source_id"]), [])
+    video["tags"] = video_tags.get(int(video["id"]), [])
+    video["transcripts"] = get_youtube_transcripts(int(video["id"]))
+    return video
+
+
+def get_youtube_video_by_youtube_id(youtube_video_id: str) -> dict[str, Any] | None:
+    with get_youtube_db() as conn:
+        row = conn.execute(
+            "SELECT id FROM youtube_videos WHERE video_id = ?",
+            (youtube_video_id,),
+        ).fetchone()
+
+    return get_youtube_video(int(row["id"])) if row else None
+
+
+def get_youtube_transcripts(video_id: int) -> list[dict[str, Any]]:
+    with get_youtube_db() as conn:
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM youtube_transcripts
+            WHERE video_id = ?
+            ORDER BY updated_at DESC, language_code
+            """,
+            (video_id,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_youtube_transcript(video_id: int, language_code: str) -> dict[str, Any] | None:
+    with get_youtube_db() as conn:
+        row = conn.execute(
+            """
+            SELECT *
+            FROM youtube_transcripts
+            WHERE video_id = ? AND language_code = ?
+            """,
+            (video_id, language_code),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def first_saved_youtube_transcript_path(video: dict[str, Any]) -> str:
+    for transcript in video.get("transcripts", []):
+        rel_path = str(transcript.get("markdown_rel_path") or "")
+        if not rel_path:
+            continue
+        try:
+            transcript_path = youtube_transcript_abs_path(rel_path)
+        except ValueError:
+            continue
+        if transcript_path.exists():
+            return rel_path
+    return ""
+
+
+def save_youtube_transcript_record(
+    video_id: int,
+    doc: Any,
+    markdown_rel_path: str,
+) -> dict[str, Any]:
+    timestamp = now_iso()
+    language_code = str(transcript_value(doc, "language_code") or "")
+    language_name = str(transcript_value(doc, "language_name") or language_code)
+    with get_youtube_db() as conn:
+        conn.execute(
+            """
+            INSERT INTO youtube_transcripts
+                (video_id, language_code, language_name, is_generated, markdown_rel_path,
+                 segment_count, fetched_at, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(video_id, language_code) DO UPDATE SET
+                language_name = excluded.language_name,
+                is_generated = excluded.is_generated,
+                markdown_rel_path = excluded.markdown_rel_path,
+                segment_count = excluded.segment_count,
+                fetched_at = excluded.fetched_at,
+                updated_at = excluded.updated_at
+            """,
+            (
+                video_id,
+                language_code,
+                language_name,
+                1 if transcript_value(doc, "is_generated") else 0,
+                markdown_rel_path,
+                int(transcript_value(doc, "segment_count") or 0),
+                str(transcript_value(doc, "fetched_at") or ""),
+                timestamp,
+                timestamp,
+            ),
+        )
+        conn.commit()
+
+    existing = get_youtube_transcript(video_id, language_code)
+    if not existing:
+        raise RuntimeError("Could not save transcript record")
+    return existing
+
+
+def write_youtube_transcript(video: dict[str, Any], doc: Any) -> dict[str, Any]:
+    language_code = str(transcript_value(doc, "language_code") or "")
+    rel_path = youtube_transcript_rel_path(video, language_code)
+    path = youtube_transcript_abs_path(rel_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(youtube_transcript_markdown(video, doc), encoding="utf-8")
+    return save_youtube_transcript_record(int(video["id"]), doc, rel_path)
+
+
+def build_youtube_bookmarklet(base_url: str) -> str:
+    capture_url = f"{base_url.rstrip('/')}/youtube/capture"
+    return (
+        "javascript:(()=>{"
+        "const owner=document.querySelector('ytd-watch-metadata ytd-channel-name a')"
+        "||document.querySelector('ytd-video-owner-renderer ytd-channel-name a')"
+        "||document.querySelector('#owner-name a');"
+        "const channel=owner?.textContent?.trim()||'';"
+        f"const url=new URL('{capture_url}');"
+        "url.searchParams.set('url',location.href);"
+        "url.searchParams.set('title',document.title.replace(/\\s+-\\s+YouTube\\s*$/i,''));"
+        "if(channel)url.searchParams.set('source',channel);"
+        "if(owner?.href)url.searchParams.set('source_url',owner.href);"
+        "window.open(url.toString(),'_blank')"
+        "})()"
+    )
+
+
 def get_lcars_lab_status() -> dict[str, Any]:
     session_name = "lcars_lab"
     tmux_running = False
@@ -1061,7 +2307,40 @@ def jupyter_page() -> str:
 
 @app.get("/books")
 def books_page() -> str:
-    return render_template("books.html", books=get_books())
+    return render_template(
+        "books.html",
+        books=get_books(),
+        local_pdfs=get_local_pdfs(),
+        s3_books=get_s3_books(),
+        s3_library=s3_library_status(),
+    )
+
+
+@app.get("/pdf/<path:book_id>")
+def local_pdf_page(book_id: str) -> Any:
+    try:
+        pdf_path = safe_local_pdf_path(book_id)
+    except ValueError:
+        abort(404)
+    if not pdf_path.exists():
+        abort(404)
+    return send_file(
+        pdf_path,
+        mimetype="application/pdf",
+        as_attachment=False,
+        download_name=pdf_path.name,
+    )
+
+
+@app.get("/book/<book_id>")
+def open_s3_book(book_id: str) -> Any:
+    book = s3_book_by_id(book_id)
+    if not book:
+        abort(404)
+    try:
+        return redirect(build_s3_book_url(book["filename"]))
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 503
 
 @app.get("/reader/<path:book_id>")
 def reader_page(book_id: str) -> str:
@@ -1082,6 +2361,261 @@ def markdown_page() -> str:
         docs=get_markdown_docs(),
         markdown_folders=get_markdown_folders(),
     )
+
+@app.get("/youtube")
+def youtube_page() -> str:
+    query = request.args.get("q", "").strip()
+    notice = request.args.get("notice", "").strip()
+    sources = get_youtube_sources(query)
+    return render_template(
+        "youtube.html",
+        query=query,
+        notice=notice,
+        sources=sources,
+        source_count=len(sources),
+        video_count=sum(int(source.get("video_count") or 0) for source in sources),
+        bookmarklet=build_youtube_bookmarklet(request.host_url),
+    )
+
+
+@app.get("/youtube/capture")
+def youtube_capture() -> Any:
+    raw_url = request.args.get("url", "").strip()
+    raw_title = request.args.get("title", "").strip()
+    raw_source = request.args.get("source", "").strip()
+    raw_source_url = request.args.get("source_url", "").strip()
+    error = ""
+    video_id = ""
+    canonical_url = raw_url
+    thumbnail_url = ""
+    default_title = ""
+    default_source_name = ""
+    default_source_url = ""
+    if raw_url:
+        try:
+            video_id = parse_youtube_video_id(raw_url)
+            existing_video = get_youtube_video_by_youtube_id(video_id)
+            if existing_video:
+                return redirect(url_for(
+                    "youtube_video_edit",
+                    video_id=existing_video["id"],
+                    notice="ALREADY SAVED",
+                ))
+            defaults = youtube_metadata_defaults(video_id, raw_title, raw_source, raw_source_url, raw_url)
+            canonical_url = defaults["url"]
+            thumbnail_url = defaults["thumbnail_url"]
+            default_title = defaults["title"]
+            default_source_name = defaults["source_name"]
+            default_source_url = defaults["source_url"]
+        except ValueError as exc:
+            error = str(exc)
+
+    return render_template(
+        "youtube_capture.html",
+        error=error,
+        raw_url=raw_url,
+        video_id=video_id,
+        canonical_url=canonical_url,
+        thumbnail_url=thumbnail_url,
+        default_title=default_title,
+        default_source_name=default_source_name or YOUTUBE_INBOX_SOURCE,
+        default_source_url=default_source_url,
+        default_source_alias="",
+        default_source_tags="",
+        default_video_tags="",
+        default_video_notes="",
+    )
+
+
+@app.post("/youtube/capture")
+def youtube_capture_save() -> Any:
+    try:
+        submitted_video_id = request.form.get("video_id", "").strip() or parse_youtube_video_id(request.form.get("url", ""))
+        existing_video = get_youtube_video_by_youtube_id(submitted_video_id)
+    except ValueError:
+        existing_video = None
+
+    if existing_video:
+        return redirect(url_for(
+            "youtube_video_edit",
+            video_id=existing_video["id"],
+            notice="ALREADY SAVED",
+        ))
+
+    try:
+        result = save_youtube_video(dict(request.form.items()))
+    except ValueError as exc:
+        return render_template(
+            "youtube_capture.html",
+            error=str(exc),
+            raw_url=request.form.get("url", ""),
+            video_id=request.form.get("video_id", ""),
+            canonical_url=request.form.get("url", ""),
+            thumbnail_url=(
+                youtube_thumbnail_url(request.form.get("video_id", ""))
+                if request.form.get("video_id", "")
+                else ""
+            ),
+            default_title=request.form.get("title", ""),
+            default_source_name=request.form.get("source_name", "") or YOUTUBE_INBOX_SOURCE,
+            default_source_url=request.form.get("source_url", ""),
+            default_source_alias=request.form.get("source_alias", ""),
+            default_source_tags=request.form.get("source_tags", ""),
+            default_video_tags=request.form.get("video_tags", ""),
+            default_video_notes=request.form.get("video_notes", ""),
+        ), 400
+
+    return redirect(url_for("youtube_source", source_id=result["source_id"]))
+
+
+@app.post("/youtube/enrich")
+def youtube_enrich() -> Any:
+    summary = enrich_youtube_library()
+    notice = (
+        f"INBOX SCAN: CHECKED {summary['checked']}, UPDATED {summary['updated']}, "
+        f"SKIPPED {summary['skipped']}"
+    )
+    return redirect(url_for("youtube_page", notice=notice))
+
+
+@app.post("/youtube/video/<int:video_id>/delete")
+def youtube_video_delete(video_id: int) -> Any:
+    result = delete_youtube_video(video_id)
+    if not result["deleted"]:
+        return redirect(url_for("youtube_page", notice="VIDEO NOT FOUND"))
+    if result["source_deleted"]:
+        return redirect(url_for("youtube_page", notice="DELETED VIDEO AND EMPTY SOURCE"))
+    return redirect(url_for("youtube_source", source_id=result["source_id"], notice="DELETED VIDEO"))
+
+
+@app.get("/youtube/video/<int:video_id>/edit")
+def youtube_video_edit(video_id: int) -> str:
+    video = get_youtube_video(video_id)
+    if not video:
+        abort(404)
+
+    notice = request.args.get("notice", "").strip()
+    return render_template("youtube_edit.html", video=video, error="", notice=notice)
+
+
+@app.get("/youtube/video/<int:video_id>/transcript")
+def youtube_video_transcript(video_id: int) -> Any:
+    video = get_youtube_video(video_id)
+    if not video:
+        abort(404)
+
+    choose_language = request.args.get("choose", "").strip() == "1"
+    existing_rel_path = first_saved_youtube_transcript_path(video)
+    if existing_rel_path and not choose_language:
+        return redirect(url_for("markdown_view", doc_id=existing_rel_path))
+
+    client = None
+    probe_info: dict[str, Any] = {}
+    error = ""
+    try:
+        client = transcript_client()
+        probe_info = client.probe(str(video["video_id"]), include_metadata=False)
+    except Exception as exc:
+        error = str(exc)
+
+    return render_template(
+        "youtube_transcript.html",
+        video=video,
+        probe=probe_info,
+        languages=probe_info.get("available_languages", []),
+        existing_transcripts=video.get("transcripts", []),
+        using_proxy=bool(getattr(client, "using_proxy", False)),
+        error=error,
+    )
+
+
+@app.post("/youtube/video/<int:video_id>/transcript")
+def youtube_video_transcript_fetch(video_id: int) -> Any:
+    video = get_youtube_video(video_id)
+    if not video:
+        abort(404)
+
+    language_code = request.form.get("language_code", "").strip()
+    if not language_code:
+        return redirect(url_for("youtube_video_transcript", video_id=video_id))
+
+    existing = get_youtube_transcript(video_id, language_code)
+    if existing:
+        existing_path = youtube_transcript_abs_path(str(existing["markdown_rel_path"]))
+        if existing_path.exists():
+            return redirect(url_for("markdown_view", doc_id=existing["markdown_rel_path"]))
+
+    client = None
+    probe_info: dict[str, Any] = {}
+    try:
+        client = transcript_client()
+        doc = client.fetch(str(video["video_id"]), language_code, include_metadata=False)
+        record = write_youtube_transcript(video, doc)
+        return redirect(url_for("markdown_view", doc_id=record["markdown_rel_path"]))
+    except Exception as exc:
+        try:
+            if client:
+                probe_info = client.probe(str(video["video_id"]), include_metadata=False)
+        except Exception:
+            probe_info = {}
+
+        return render_template(
+            "youtube_transcript.html",
+            video=video,
+            probe=probe_info,
+            languages=probe_info.get("available_languages", []),
+            existing_transcripts=get_youtube_transcripts(video_id),
+            using_proxy=bool(getattr(client, "using_proxy", False)),
+            error=str(exc),
+        ), 400
+
+
+@app.post("/youtube/video/<int:video_id>/edit")
+def youtube_video_update(video_id: int) -> Any:
+    video = get_youtube_video(video_id)
+    if not video:
+        abort(404)
+
+    form = dict(request.form.items())
+    form["video_id"] = str(video["video_id"])
+    form["url"] = str(video["url"])
+    form["replace_source_identity"] = "1"
+    form["replace_source_tags"] = "1"
+
+    try:
+        result = save_youtube_video(form)
+    except ValueError as exc:
+        edited_video = {**video, **form}
+        edited_video["source_name"] = form.get("source_name", video.get("source_name", ""))
+        edited_video["source_alias"] = form.get("source_alias", video.get("source_alias", ""))
+        edited_video["source_url"] = form.get("source_url", video.get("source_url", ""))
+        edited_video["source_tags"] = parse_tag_list(form.get("source_tags", ""))
+        edited_video["tags"] = parse_tag_list(form.get("video_tags", ""))
+        edited_video["notes"] = form.get("video_notes", video.get("notes", ""))
+        return render_template("youtube_edit.html", video=edited_video, error=str(exc), notice=""), 400
+
+    return redirect(url_for("youtube_source", source_id=result["source_id"], notice="UPDATED VIDEO"))
+
+
+@app.post("/youtube/source/<int:source_id>/delete")
+def youtube_source_delete(source_id: int) -> Any:
+    try:
+        result = delete_youtube_source(source_id)
+    except ValueError as exc:
+        return redirect(url_for("youtube_source", source_id=source_id, notice=str(exc).upper()))
+
+    notice = "DELETED EMPTY SOURCE" if result["deleted"] else "SOURCE NOT FOUND"
+    return redirect(url_for("youtube_page", notice=notice))
+
+
+@app.get("/youtube/source/<int:source_id>")
+def youtube_source(source_id: int) -> str:
+    source = get_youtube_source(source_id)
+    if not source:
+        abort(404)
+    notice = request.args.get("notice", "").strip()
+    return render_template("youtube_source.html", source=source, notice=notice)
+
 
 @app.get("/md/view/<path:doc_id>")
 def markdown_view(doc_id: str) -> Any:
@@ -1349,7 +2883,51 @@ def api_jupyter_servers() -> Any:
 
 @app.get("/api/books")
 def api_books() -> Any:
-    return jsonify({"ok": True, "books": get_books()})
+    return jsonify({
+        "ok": True,
+        "books": get_books(),
+        "local_pdfs": get_local_pdfs(),
+    })
+
+@app.get("/api/s3/books")
+def api_s3_books() -> Any:
+    return jsonify({
+        "ok": True,
+        "books": get_s3_books(),
+        "s3_library": s3_library_status(),
+    })
+
+@app.get("/api/s3/book/<book_id>")
+def api_s3_book(book_id: str) -> Any:
+    book = s3_book_by_id(book_id)
+    if not book:
+        return jsonify({"ok": False, "error": "Book not found"}), 404
+    try:
+        url = build_s3_book_url(book["filename"])
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 503
+    return jsonify({"ok": True, "book": book, "url": url})
+
+@app.post("/api/s3/book/<book_id>/open")
+def api_s3_book_open(book_id: str) -> Any:
+    book = s3_book_by_id(book_id)
+    if not book:
+        return jsonify({"ok": False, "error": "Book not found"}), 404
+
+    try:
+        cache = ensure_s3_book_cached(book)
+        open_local_file(cache["path"])
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    except RuntimeError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 503
+
+    return jsonify({
+        "ok": True,
+        "book": add_s3_book_cache_fields(book),
+        "downloaded": cache["downloaded"],
+        "path": str(cache["path"]),
+    })
 
 @app.get("/api/book/<path:book_id>")
 def api_book(book_id: str) -> Any:
