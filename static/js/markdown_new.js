@@ -13,6 +13,13 @@
 
   const contextEl = document.getElementById("markdown-folder-context");
 
+  function encodeDocPath(path) {
+    return String(path || "")
+      .split("/")
+      .map((part) => encodeURIComponent(part))
+      .join("/");
+  }
+
   if (!titleInput || !createButton) return;
 
   const params = new URLSearchParams(window.location.search);
@@ -52,7 +59,7 @@
         return;
       }
 
-      window.location.href = `/md/edit/${encodeURIComponent(data.id || "")}`;
+      window.location.href = `/md/edit/${encodeDocPath(data.id)}`;
     } catch (error) {
       if (errorEl) errorEl.textContent = error.message || "CREATE FAILED";
     } finally {

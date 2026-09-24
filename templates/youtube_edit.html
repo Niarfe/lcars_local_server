@@ -86,12 +86,12 @@
 
       <label>
         <span class="label">SOURCE TAGS</span>
-        <input class="new-md-input" name="source_tags" type="text" value="{{ video.source_tags|join(', ') }}" placeholder="ai, agents, french, news" />
+        <input class="new-md-input" name="source_tags" type="text" value="{{ video.source_tags|join(' ') }}" placeholder="AI AGENTS FRENCH NEWS" />
       </label>
 
       <label>
         <span class="label">VIDEO / SHORT TAGS</span>
-        <input class="new-md-input" name="video_tags" type="text" value="{{ video.tags|join(', ') }}" placeholder="llama3, evals, demo" />
+        <input class="new-md-input" name="video_tags" type="text" value="{{ video.tags|join(' ') }}" placeholder="LLAMA3 EVALS DEMO" />
       </label>
 
       <label>

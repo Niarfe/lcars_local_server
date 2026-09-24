@@ -7,8 +7,8 @@
     <h1>MARKDOWN DOCS</h1>
   </div>
   <div class="hero-badges">
-    <button class="badge alt hidden" id="archive-markdown-context" type="button">ARCHIVE</button>
-    <a class="badge linklike" id="new-markdown-context-link" href="{{ url_for('markdown_new') }}">NEW DOCUMENT</a>
+    <button class="badge alt{% if not archive_folder %} hidden{% endif %}" id="archive-markdown-context" data-folder="{{ archive_folder }}" type="button">ARCHIVE {{ archive_folder|upper }}</button>
+    <a class="badge linklike" id="new-markdown-context-link" href="{{ url_for('markdown_new', folder=current_folder) if current_folder else url_for('markdown_new') }}">{% if current_folder %}NEW {{ current_name|upper }} DOC{% else %}NEW DOCUMENT{% endif %}</a>
     <div class="badge gold">{{ docs|length }} DOCS</div>
   </div>
 </header>
@@ -16,17 +16,24 @@
 <section class="panel">
   <div class="panel-header">
     <span>AVAILABLE DOCUMENTS</span>
-    <span class="subtle">.MD</span>
+    <span class="subtle">INCLUDING SUBFOLDERS · .MD</span>
   </div>
-  <div class="markdown-folder-contexts">
-    <button class="mini markdown-folder-filter" data-filter="">ALL</button>
-    {% for folder in markdown_folders %}
-    <button class="mini alt markdown-folder-filter" data-filter="{{ folder }}/">{{ folder|upper }}</button>
+  <nav class="markdown-folder-contexts" aria-label="Markdown folder scope">
+    {% for folder in breadcrumbs %}
+    <a
+      class="mini markdown-folder-crumb{% if loop.last %} current{% else %} ancestor{% endif %}"
+      data-folder-link="{{ folder.path }}"
+      href="{{ url_for('markdown_page', folder=folder.path) if folder.path else url_for('markdown_page') }}"
+      {% if loop.last %}aria-current="page"{% endif %}
+    >{{ folder.name|upper }}</a>
     {% endfor %}
-    {% if not markdown_folders %}
-    <span class="subtle">No folder contexts yet. Create folders under <code>markdown/</code>.</span>
+    {% for folder in children %}
+    <a class="mini alt markdown-folder-child" data-folder-link="{{ folder.path }}" href="{{ url_for('markdown_page', folder=folder.path) }}">{{ folder.name|upper }}</a>
+    {% endfor %}
+    {% if not children and not current_folder %}
+    <span class="subtle">No folder scopes yet. Create folders under <code>markdown/</code>.</span>
     {% endif %}
-  </div>
+  </nav>
 
   <input id="markdown-filter" class="library-filter" type="text" placeholder="FILTER PREFIX OR TEXT, E.G. 6050" />
   {% if docs %}

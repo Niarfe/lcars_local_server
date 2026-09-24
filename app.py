@@ -1234,6 +1234,50 @@ def get_markdown_folders() -> list[str]:
     return sorted(folders, key=lambda x: x.lower())
 
 
+def get_markdown_scope(folder_id: str = "") -> dict[str, Any]:
+    requested_folder = folder_id.strip().strip("/")
+    current_folder = ""
+    if requested_folder:
+        folder_path = safe_markdown_folder_path(requested_folder)
+        current_folder = folder_path.relative_to(MARKDOWN_DIR.resolve()).as_posix()
+
+    all_docs = get_markdown_docs()
+    prefix = f"{current_folder}/" if current_folder else ""
+    docs = [doc for doc in all_docs if not prefix or doc["id"].startswith(prefix)]
+
+    current_parts = tuple(part for part in current_folder.split("/") if part)
+    child_names: set[str] = set()
+    for doc in docs:
+        folder_parts = tuple(Path(doc["id"]).parts[:-1])
+        if folder_parts[:len(current_parts)] != current_parts:
+            continue
+        if len(folder_parts) > len(current_parts):
+            child_names.add(folder_parts[len(current_parts)])
+
+    children = [
+        {
+            "name": name,
+            "path": "/".join((*current_parts, name)),
+        }
+        for name in sorted(child_names, key=str.casefold)
+    ]
+
+    breadcrumbs: list[dict[str, str]] = [{"name": "ALL", "path": ""}]
+    path_parts: list[str] = []
+    for part in current_parts:
+        path_parts.append(part)
+        breadcrumbs.append({"name": part, "path": "/".join(path_parts)})
+
+    return {
+        "docs": docs,
+        "current_folder": current_folder,
+        "current_name": current_parts[-1] if current_parts else "ALL",
+        "breadcrumbs": breadcrumbs,
+        "children": children,
+        "archive_folder": current_folder if current_folder and len(current_parts) == 1 else "",
+    }
+
+
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -1420,14 +1464,23 @@ def youtube_metadata_defaults(
     }
 
 
+def normalize_youtube_tag(raw_tag: str) -> str:
+    return re.sub(r"\s+", " ", raw_tag.strip()).upper()
+
+
+def youtube_tag_key(raw_tag: str) -> str:
+    return normalize_youtube_tag(raw_tag).casefold()
+
+
 def parse_tag_list(raw_tags: str) -> list[str]:
     tags: list[str] = []
     seen: set[str] = set()
-    for raw in re.split(r"[,#\n]", raw_tags):
-        tag = re.sub(r"\s+", " ", raw.strip().lower())
-        if not tag or tag in seen:
+    for raw in re.split(r"[,#\s]+", raw_tags):
+        tag = normalize_youtube_tag(raw)
+        key = youtube_tag_key(tag)
+        if not tag or key in seen:
             continue
-        seen.add(tag)
+        seen.add(key)
         tags.append(tag)
     return tags
 
@@ -1513,8 +1566,16 @@ def youtube_transcript_markdown(video: dict[str, Any], doc: Any) -> str:
 
 
 def get_or_create_youtube_tag(conn: sqlite3.Connection, name: str) -> int:
-    conn.execute("INSERT OR IGNORE INTO youtube_tags (name) VALUES (?)", (name,))
-    row = conn.execute("SELECT id FROM youtube_tags WHERE name = ?", (name,)).fetchone()
+    normalized_name = normalize_youtube_tag(name)
+    row = conn.execute(
+        "SELECT id FROM youtube_tags WHERE lower(name) = lower(?) ORDER BY id LIMIT 1",
+        (normalized_name,),
+    ).fetchone()
+    if row:
+        return int(row["id"])
+
+    conn.execute("INSERT OR IGNORE INTO youtube_tags (name) VALUES (?)", (normalized_name,))
+    row = conn.execute("SELECT id FROM youtube_tags WHERE name = ?", (normalized_name,)).fetchone()
     if not row:
         raise RuntimeError("Could not create YouTube tag")
     return int(row["id"])
@@ -1578,9 +1639,52 @@ def youtube_tags_for(conn: sqlite3.Connection, table: str, owner_column: str) ->
         """
     ).fetchall()
     tags: dict[int, list[str]] = {}
+    seen_by_owner: dict[int, set[str]] = {}
     for row in rows:
-        tags.setdefault(int(row["owner_id"]), []).append(str(row["name"]))
+        owner_id = int(row["owner_id"])
+        seen = seen_by_owner.setdefault(owner_id, set())
+        for tag in parse_tag_list(str(row["name"])):
+            key = youtube_tag_key(tag)
+            if not tag or key in seen:
+                continue
+            seen.add(key)
+            tags.setdefault(owner_id, []).append(tag)
+    for owner_tags in tags.values():
+        owner_tags.sort(key=str.casefold)
     return tags
+
+
+def get_youtube_tag_labels() -> list[str]:
+    with get_youtube_db() as conn:
+        rows = conn.execute(
+            """
+            SELECT tag.name
+            FROM youtube_tags tag
+            JOIN youtube_source_tags link ON link.tag_id = tag.id
+            UNION ALL
+            SELECT tag.name
+            FROM youtube_tags tag
+            JOIN youtube_video_tags link ON link.tag_id = tag.id
+            """
+        ).fetchall()
+
+    labels = {
+        tag
+        for row in rows
+        for tag in parse_tag_list(str(row["name"]))
+    }
+    return sorted(labels, key=str.casefold)
+
+
+def get_youtube_library_counts() -> tuple[int, int]:
+    with get_youtube_db() as conn:
+        source_count = int(
+            conn.execute("SELECT COUNT(*) FROM youtube_sources").fetchone()[0]
+        )
+        video_count = int(
+            conn.execute("SELECT COUNT(*) FROM youtube_videos").fetchone()[0]
+        )
+    return source_count, video_count
 
 
 def upsert_youtube_source(
@@ -1834,8 +1938,17 @@ def delete_youtube_source(source_id: int, require_empty: bool = True) -> dict[st
     return {"deleted": 1, "video_count": video_count}
 
 
-def get_youtube_sources(query: str = "") -> list[dict[str, Any]]:
-    normalized_query = query.strip().lower()
+def get_youtube_sources(
+    query: str = "",
+    selected_tags: str | list[str] | tuple[str, ...] = (),
+) -> list[dict[str, Any]]:
+    normalized_query = query.strip().casefold()
+    raw_selected_tags = [selected_tags] if isinstance(selected_tags, str) else selected_tags
+    selected_tag_keys = {
+        youtube_tag_key(tag)
+        for tag in raw_selected_tags
+        if normalize_youtube_tag(tag)
+    }
     with get_youtube_db() as conn:
         source_tags = youtube_tags_for(conn, "youtube_source_tags", "source_id")
         video_tags = youtube_tags_for(conn, "youtube_video_tags", "video_id")
@@ -1868,7 +1981,21 @@ def get_youtube_sources(query: str = "") -> list[dict[str, Any]]:
         source_id = int(source["id"])
         source_videos = videos_by_source.get(source_id, [])
         latest_video = source_videos[0] if source_videos else None
-        tags = source_tags.get(source_id, [])
+        source_only_tags = source_tags.get(source_id, [])
+        tags: list[str] = []
+        tag_keys: set[str] = set()
+        for tag in source_only_tags:
+            key = youtube_tag_key(tag)
+            if key and key not in tag_keys:
+                tag_keys.add(key)
+                tags.append(normalize_youtube_tag(tag))
+        for video in source_videos:
+            for tag in video.get("tags", []):
+                key = youtube_tag_key(tag)
+                if key and key not in tag_keys:
+                    tag_keys.add(key)
+                    tags.append(normalize_youtube_tag(tag))
+        tags.sort(key=str.casefold)
         thumbnail = (
             str(latest_video["thumbnail_url"])
             if latest_video and latest_video.get("thumbnail_url")
@@ -1892,11 +2019,14 @@ def get_youtube_sources(query: str = "") -> list[dict[str, Any]]:
                     for video in source_videos
                 ),
             ]
-        ).lower()
+        ).casefold()
         if normalized_query and normalized_query not in search_blob:
+            continue
+        if not selected_tag_keys.issubset(tag_keys):
             continue
 
         source["tags"] = tags
+        source["source_tags"] = source_only_tags
         source["videos"] = source_videos[:1]
         source["video_titles"] = [str(video.get("title") or "") for video in source_videos]
         source["latest_video"] = latest_video
@@ -1904,6 +2034,63 @@ def get_youtube_sources(query: str = "") -> list[dict[str, Any]]:
         cards.append(source)
 
     return cards
+
+
+def get_youtube_items(
+    query: str = "",
+    selected_tags: str | list[str] | tuple[str, ...] = (),
+) -> list[dict[str, Any]]:
+    normalized_query = query.strip().casefold()
+    raw_selected_tags = [selected_tags] if isinstance(selected_tags, str) else selected_tags
+    selected_tag_keys = {
+        youtube_tag_key(tag)
+        for tag in raw_selected_tags
+        if normalize_youtube_tag(tag)
+    }
+    with get_youtube_db() as conn:
+        source_tags = youtube_tags_for(conn, "youtube_source_tags", "source_id")
+        video_tags = youtube_tags_for(conn, "youtube_video_tags", "video_id")
+        items = [dict(row) for row in conn.execute(
+            """
+            SELECT video.*,
+                   source.name AS source_name,
+                   source.alias AS source_alias
+            FROM youtube_videos video
+            JOIN youtube_sources source ON source.id = video.source_id
+            ORDER BY video.updated_at DESC, video.title
+            """
+        ).fetchall()]
+
+    results: list[dict[str, Any]] = []
+    for item in items:
+        tags: list[str] = []
+        tag_keys: set[str] = set()
+        for tag in [
+            *source_tags.get(int(item["source_id"]), []),
+            *video_tags.get(int(item["id"]), []),
+        ]:
+            key = youtube_tag_key(tag)
+            if key and key not in tag_keys:
+                tag_keys.add(key)
+                tags.append(normalize_youtube_tag(tag))
+        tags.sort(key=str.casefold)
+        search_blob = " ".join(
+            [
+                str(item.get("title") or ""),
+                str(item.get("notes") or ""),
+                str(item.get("source_name") or ""),
+                str(item.get("source_alias") or ""),
+                " ".join(tags),
+            ]
+        ).casefold()
+        if normalized_query and normalized_query not in search_blob:
+            continue
+        if not selected_tag_keys.issubset(tag_keys):
+            continue
+        item["tags"] = tags
+        results.append(item)
+
+    return results
 
 
 def get_youtube_source(source_id: int) -> dict[str, Any] | None:
@@ -1927,10 +2114,24 @@ def get_youtube_source(source_id: int) -> dict[str, Any] | None:
             """,
             (source_id,),
         ).fetchall()]
+        transcripts = [dict(transcript) for transcript in conn.execute(
+            """
+            SELECT transcript.*
+            FROM youtube_transcripts transcript
+            JOIN youtube_videos video ON video.id = transcript.video_id
+            WHERE video.source_id = ?
+            ORDER BY transcript.updated_at DESC, transcript.language_code
+            """,
+            (source_id,),
+        ).fetchall()]
 
     source["tags"] = source_tags.get(source_id, [])
+    transcripts_by_video: dict[int, list[dict[str, Any]]] = {}
+    for transcript in transcripts:
+        transcripts_by_video.setdefault(int(transcript["video_id"]), []).append(transcript)
     for video in videos:
         video["tags"] = video_tags.get(int(video["id"]), [])
+        video["transcripts"] = transcripts_by_video.get(int(video["id"]), [])
     source["videos"] = videos
     source["thumbnail_url"] = (
         str(videos[0]["thumbnail_url"])
@@ -2356,24 +2557,72 @@ def reader_page(book_id: str) -> str:
 
 @app.get("/markdown")
 def markdown_page() -> str:
+    try:
+        scope = get_markdown_scope(request.args.get("folder", ""))
+    except ValueError:
+        abort(404)
     return render_template(
         "markdown_list.html",
-        docs=get_markdown_docs(),
-        markdown_folders=get_markdown_folders(),
+        **scope,
     )
 
 @app.get("/youtube")
 def youtube_page() -> str:
     query = request.args.get("q", "").strip()
+    selected_tags = parse_tag_list("\n".join(request.args.getlist("tag")))
+    view = "items" if request.args.get("view", "").strip().lower() == "items" else "sources"
     notice = request.args.get("notice", "").strip()
-    sources = get_youtube_sources(query)
+    sources = get_youtube_sources(query, selected_tags) if view == "sources" else []
+    items = get_youtube_items(query, selected_tags) if view == "items" else []
+    results = sources if view == "sources" else items
+    source_count, video_count = get_youtube_library_counts()
+    selected_tag_keys = {youtube_tag_key(tag) for tag in selected_tags}
+    available_tag_keys = set(selected_tag_keys)
+    for result in results:
+        available_tag_keys.update(youtube_tag_key(tag) for tag in result.get("tags", []))
+    tag_filters: list[dict[str, Any]] = []
+    tag_labels = get_youtube_tag_labels()
+    known_tag_keys = {youtube_tag_key(tag) for tag in tag_labels}
+    tag_labels.extend(
+        tag for tag in selected_tags if youtube_tag_key(tag) not in known_tag_keys
+    )
+    for tag in sorted(tag_labels, key=str.casefold):
+        active = youtube_tag_key(tag) in selected_tag_keys
+        if not active and youtube_tag_key(tag) not in available_tag_keys:
+            continue
+        next_tags = (
+            [selected for selected in selected_tags if youtube_tag_key(selected) != youtube_tag_key(tag)]
+            if active
+            else [*selected_tags, tag]
+        )
+        params: dict[str, Any] = {"tag": next_tags}
+        if query:
+            params["q"] = query
+        if view == "items":
+            params["view"] = "items"
+        tag_filters.append(
+            {"label": tag, "active": active, "url": url_for("youtube_page", **params)}
+        )
+    all_params = {"q": query} if query else {}
+    if view == "items":
+        all_params["view"] = "items"
+    shared_view_params: dict[str, Any] = {"tag": selected_tags}
+    if query:
+        shared_view_params["q"] = query
     return render_template(
         "youtube.html",
         query=query,
+        selected_tags=selected_tags,
+        view=view,
+        tag_filters=tag_filters,
+        all_tags_url=url_for("youtube_page", **all_params),
+        sources_url=url_for("youtube_page", **shared_view_params),
+        items_url=url_for("youtube_page", view="items", **shared_view_params),
         notice=notice,
         sources=sources,
-        source_count=len(sources),
-        video_count=sum(int(source.get("video_count") or 0) for source in sources),
+        items=items,
+        source_count=source_count,
+        video_count=video_count,
         bookmarklet=build_youtube_bookmarklet(request.host_url),
     )
 
@@ -2804,7 +3053,7 @@ def api_markdown_rename(doc_id: str) -> Any:
     return jsonify({
         "ok": True,
         "id": new_id,
-        "url": f"/md/view/{new_id}",
+        "url": url_for("markdown_view", doc_id=new_id),
     })
 
 

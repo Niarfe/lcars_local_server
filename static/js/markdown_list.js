@@ -7,48 +7,23 @@
   const archiveStatus = document.getElementById("archive-status");
   const archiveConfirm = document.getElementById("archive-confirm");
   const archiveCancel = document.getElementById("archive-cancel");
-  const FILTER_KEY = "lcars-markdown-filter";
-  let activeArchiveFolder = "";
+  const FILTER_KEY = "lcars-markdown-text-filter-v2";
+  const activeArchiveFolder = archiveButton?.dataset.folder || "";
 
-  function getFolderContext(query) {
-    const value = (query || "").trim();
-    if (!value.endsWith("/")) return "";
-    return value.split("/").filter(Boolean)[0] || "";
-  }
-
-  function updateNewDocumentLink(query) {
-    const link = document.getElementById("new-markdown-context-link");
-    if (!link) return;
-    const folder = getFolderContext(query);
-    link.href = folder ? `/md/new?folder=${encodeURIComponent(folder)}` : "/md/new";
-    link.textContent = folder ? `NEW ${folder.toUpperCase()} DOC` : "NEW DOCUMENT";
-  }
-
-  function updateArchiveButton(query) {
-    if (!archiveButton) return;
-    const folder = getFolderContext(query);
-    activeArchiveFolder = folder;
-    archiveButton.classList.toggle("hidden", !folder);
-    archiveButton.textContent = folder ? `ARCHIVE ${folder.toUpperCase()}` : "ARCHIVE";
-  }
-
-  function normalizeFolderFilter(value) {
-    const folder = (value || "").trim().replace(/^\/+|\/+$/g, "");
-    return folder ? `${folder.toLowerCase()}/` : "";
+  function encodeDocPath(docId) {
+    return String(docId || "")
+      .split("/")
+      .map((part) => encodeURIComponent(part))
+      .join("/");
   }
 
   function getInitialFilter() {
-    const params = new URLSearchParams(window.location.search);
-    const folderFilter = normalizeFolderFilter(params.get("folder") || "");
-    if (folderFilter) return folderFilter;
     return localStorage.getItem(FILTER_KEY) || "";
   }
 
   function applyFilter() {
     const query = (filterInput.value || "").trim().toLowerCase();
     localStorage.setItem(FILTER_KEY, query);
-    updateNewDocumentLink(query);
-    updateArchiveButton(query);
 
     rows.forEach((row) => {
       const name = row.dataset.name || "";
@@ -154,14 +129,14 @@
     button.textContent = "RENAMING";
 
     try {
-      const response = await fetch(`/api/markdown/rename/${encodeURIComponent(docId)}`, {
+      const response = await fetch(`/api/markdown/rename/${encodeDocPath(docId)}`, {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({ name: nextName.trim() })
       });
       const data = await response.json();
       if (data.ok) {
-        window.location.href = "/markdown";
+        window.location.reload();
       } else {
         alert(data.error || "Rename failed");
       }
@@ -181,7 +156,7 @@
     button.textContent = "DELETING";
 
     try {
-      const response = await fetch(`/api/markdown/delete/${encodeURIComponent(docId)}`, { method: "POST" });
+      const response = await fetch(`/api/markdown/delete/${encodeDocPath(docId)}`, { method: "POST" });
       const data = await response.json();
       if (data.ok) {
         button.closest(".markdown-doc-row")?.remove();
@@ -195,14 +170,6 @@
       button.textContent = "DELETE";
     }
   }
-
-  document.querySelectorAll(".markdown-folder-filter").forEach((button) => {
-    button.addEventListener("click", () => {
-      if (!filterInput) return;
-      filterInput.value = button.dataset.filter || "";
-      applyFilter();
-    });
-  });
 
   if (filterInput) {
     filterInput.value = getInitialFilter();

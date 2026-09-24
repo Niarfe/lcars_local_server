@@ -24,16 +24,23 @@
 <section class="youtube-source-detail">
   <div class="panel">
     {% if source.thumbnail_url %}
-    <img class="youtube-capture-thumb" src="{{ source.thumbnail_url }}" alt="" />
+      {% if source.source_url %}
+      <a class="youtube-source-identity" href="{{ source.source_url }}" target="_blank" rel="noopener noreferrer">
+        <img class="youtube-capture-thumb" src="{{ source.thumbnail_url }}" alt="" />
+      </a>
+      {% else %}
+      <img class="youtube-capture-thumb" src="{{ source.thumbnail_url }}" alt="" />
+      {% endif %}
     {% endif %}
-    <div class="youtube-detail-title">{{ source.name }}</div>
+    <div class="youtube-detail-title">
+      {% if source.source_url %}
+      <a href="{{ source.source_url }}" target="_blank" rel="noopener noreferrer">{{ source.name }}</a>
+      {% else %}
+      {{ source.name }}
+      {% endif %}
+    </div>
     {% if source.alias %}
     <div class="subtle">{{ source.alias }}</div>
-    {% endif %}
-    {% if source.source_url %}
-    <div class="youtube-source-link">
-      <a class="badge linklike" href="{{ source.source_url }}" target="_blank" rel="noopener noreferrer">OPEN SOURCE</a>
-    </div>
     {% endif %}
     {% if source.tags %}
     <div class="youtube-tags">
@@ -83,6 +90,17 @@
               <button class="mini danger" type="submit" onclick="return confirm('Remove this saved item from LCARS?')">DELETE</button>
             </form>
           </div>
+          {% if video.transcripts %}
+          <div class="youtube-transcript-links">
+            <span>TRANSCRIPTS:</span>
+            {% for transcript in video.transcripts %}
+            <a
+              href="{{ url_for('markdown_view', doc_id=transcript.markdown_rel_path) }}"
+              title="Open {{ transcript.language_name or transcript.language_code }} transcript"
+            >{{ transcript.language_code|upper }}</a>
+            {% endfor %}
+          </div>
+          {% endif %}
         </div>
       </article>
       {% endfor %}

@@ -17,6 +17,13 @@
   let fontScale = Number(localStorage.getItem(fontKey) || 100);
   let mermaidRenderToken = 0;
 
+  function encodeDocPath(docId) {
+    return String(docId || "")
+      .split("/")
+      .map((part) => encodeURIComponent(part))
+      .join("/");
+  }
+
   function getActiveTheme() {
     if (surface && surface.classList.contains("markdown-theme-dark")) return "dark";
     if (surface && surface.classList.contains("markdown-theme-white")) return "white";
@@ -256,7 +263,7 @@
       renameButton.disabled = true;
       renameButton.textContent = "RENAMING";
       try {
-        const response = await fetch(`/api/markdown/rename/${encodeURIComponent(docId)}`, {
+        const response = await fetch(`/api/markdown/rename/${encodeDocPath(docId)}`, {
           method: "POST",
           headers: {"Content-Type": "application/json"},
           body: JSON.stringify({ name: nextName.trim() })
@@ -287,7 +294,7 @@
       deleteButton.disabled = true;
       deleteButton.textContent = "DELETING";
       try {
-        const response = await fetch(`/api/markdown/delete/${encodeURIComponent(docId)}`, { method: "POST" });
+        const response = await fetch(`/api/markdown/delete/${encodeDocPath(docId)}`, { method: "POST" });
         const data = await response.json();
         if (data.ok) {
           window.location.href = "/markdown";
