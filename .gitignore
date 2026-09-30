@@ -220,6 +220,7 @@ __marimo__/
 markdown
 books
 youtube_library.sqlite3*
+backups/
 
 **/*.bak
 **/*.mp3

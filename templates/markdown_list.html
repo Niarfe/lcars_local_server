@@ -23,19 +23,28 @@
     <a
       class="mini markdown-folder-crumb{% if loop.last %} current{% else %} ancestor{% endif %}"
       data-folder-link="{{ folder.path }}"
-      href="{{ url_for('markdown_page', folder=folder.path) if folder.path else url_for('markdown_page') }}"
+      href="{{ folder.url }}"
       {% if loop.last %}aria-current="page"{% endif %}
     >{{ folder.name|upper }}</a>
     {% endfor %}
     {% for folder in children %}
-    <a class="mini alt markdown-folder-child" data-folder-link="{{ folder.path }}" href="{{ url_for('markdown_page', folder=folder.path) }}">{{ folder.name|upper }}</a>
+    <a class="mini alt markdown-folder-child" data-folder-link="{{ folder.path }}" href="{{ folder.url }}">{{ folder.name|upper }}</a>
     {% endfor %}
     {% if not children and not current_folder %}
     <span class="subtle">No folder scopes yet. Create folders under <code>markdown/</code>.</span>
     {% endif %}
   </nav>
 
-  <input id="markdown-filter" class="library-filter" type="text" placeholder="FILTER PREFIX OR TEXT, E.G. 6050" />
+  <form class="markdown-search-row" id="markdown-search-form" action="{{ url_for('markdown_page') }}" method="get" data-mode="{{ search_mode }}">
+    {% if current_folder %}<input type="hidden" name="folder" value="{{ current_folder }}" />{% endif %}
+    <input id="markdown-search-mode" type="hidden" name="mode" value="{{ search_mode }}" />
+    <div class="markdown-search-toggle" aria-label="Markdown search mode">
+      <button class="{% if search_mode == 'names' %}active{% endif %}" data-search-mode="names" type="button">NAMES</button>
+      <button class="{% if search_mode == 'grep' %}active{% endif %}" data-search-mode="grep" type="button">GREP</button>
+    </div>
+    <input id="markdown-filter" class="library-filter" name="q" type="search" value="{{ query }}" placeholder="{% if search_mode == 'grep' %}SEARCH DOCUMENT CONTENT…{% else %}FILTER TITLE OR PATH…{% endif %}" />
+    <button class="action markdown-search-submit" type="submit">SEARCH</button>
+  </form>
   {% if docs %}
   <div class="book-list" id="markdown-doc-list">
     {% for doc in docs %}
@@ -43,6 +52,14 @@
       <a class="book-row-main" href="{{ url_for('markdown_view', doc_id=doc.id) }}">
         <div class="book-title">{{ doc.name }}</div>
         <div class="subtle">{{ doc.path }}</div>
+        {% if search_mode == 'grep' and query %}
+        <div class="markdown-grep-snippets">
+          {% for match in doc.matches %}
+          <div class="markdown-grep-snippet"><span>L{{ match.line }}</span><p>{{ match.text }}</p></div>
+          {% endfor %}
+          {% if doc.hidden_match_count %}<div class="markdown-grep-more">+{{ doc.hidden_match_count }} MORE MATCH{% if doc.hidden_match_count != 1 %}ES{% endif %}</div>{% endif %}
+        </div>
+        {% endif %}
       </a>
       <div class="markdown-doc-actions">
         <button class="mini alt actions-toggle" type="button">ACTIONS</button>
@@ -58,8 +75,8 @@
   </div>
   {% else %}
   <div class="empty-state">
-    <div class="empty-title">NO MARKDOWN FILES FOUND</div>
-    <div class="subtle">Put .md files into the markdown folder, then reload this page.</div>
+    <div class="empty-title">{% if search_mode == 'grep' and query %}NO CONTENT MATCHES FOUND{% else %}NO MARKDOWN FILES FOUND{% endif %}</div>
+    <div class="subtle">{% if search_mode == 'grep' and query %}Try another term or broaden the folder scope.{% else %}Put .md files into the markdown folder, then reload this page.{% endif %}</div>
   </div>
   {% endif %}
 </section>

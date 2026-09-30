@@ -10,11 +10,20 @@
   const fontMinus = document.getElementById("md-font-minus");
   const fontReset = document.getElementById("md-font-reset");
   const fontPlus = document.getElementById("md-font-plus");
+  const fontFamilyButtons = Array.from(document.querySelectorAll("[data-md-font-family]"));
 
   const themeKey = "lcars-markdown-theme";
   const fontKey = `markdown-font-scale:${window.location.pathname}`;
+  const fontFamilyKey = `markdown-font-family:${window.location.pathname}`;
+  const fontFamilies = {
+    system: 'Inter, ui-sans-serif, system-ui, sans-serif',
+    serif: 'Georgia, "Times New Roman", serif',
+    book: '"Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif',
+    mono: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace'
+  };
 
   let fontScale = Number(localStorage.getItem(fontKey) || 100);
+  let fontFamily = localStorage.getItem(fontFamilyKey) || "system";
   let mermaidRenderToken = 0;
 
   function encodeDocPath(docId) {
@@ -193,6 +202,17 @@
     localStorage.setItem(fontKey, String(fontScale));
   }
 
+  function applyFontFamily() {
+    if (!body) return;
+    if (!fontFamilies[fontFamily]) fontFamily = "system";
+    body.style.setProperty("--md-font-family", fontFamilies[fontFamily]);
+    body.dataset.fontFamily = fontFamily;
+    fontFamilyButtons.forEach((button) => {
+      button.classList.toggle("active", button.dataset.mdFontFamily === fontFamily);
+    });
+    localStorage.setItem(fontFamilyKey, fontFamily);
+  }
+
   function installCodeCopyButtons() {
     document.querySelectorAll(".markdown-body pre").forEach((pre) => {
       if (pre.querySelector(".copy-code-button")) return;
@@ -247,8 +267,16 @@
     });
   }
 
+  fontFamilyButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      fontFamily = button.dataset.mdFontFamily || "system";
+      applyFontFamily();
+    });
+  });
+
   applyTheme(localStorage.getItem(themeKey) || "paper");
   applyFontScale();
+  applyFontFamily();
   installCodeCopyButtons();
 
 

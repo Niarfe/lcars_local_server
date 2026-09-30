@@ -7,7 +7,10 @@
   const archiveStatus = document.getElementById("archive-status");
   const archiveConfirm = document.getElementById("archive-confirm");
   const archiveCancel = document.getElementById("archive-cancel");
-  const FILTER_KEY = "lcars-markdown-text-filter-v2";
+  const searchForm = document.getElementById("markdown-search-form");
+  const searchModeInput = document.getElementById("markdown-search-mode");
+  const searchModeButtons = Array.from(document.querySelectorAll("[data-search-mode]"));
+  let searchMode = searchForm?.dataset.mode === "grep" ? "grep" : "names";
   const activeArchiveFolder = archiveButton?.dataset.folder || "";
 
   function encodeDocPath(docId) {
@@ -17,13 +20,17 @@
       .join("/");
   }
 
-  function getInitialFilter() {
-    return localStorage.getItem(FILTER_KEY) || "";
+  function updateNameSearchUrl(query) {
+    const url = new URL(window.location.href);
+    url.searchParams.delete("mode");
+    if (query) url.searchParams.set("q", query);
+    else url.searchParams.delete("q");
+    window.history.replaceState({}, "", url);
   }
 
   function applyFilter() {
     const query = (filterInput.value || "").trim().toLowerCase();
-    localStorage.setItem(FILTER_KEY, query);
+    updateNameSearchUrl((filterInput.value || "").trim());
 
     rows.forEach((row) => {
       const name = row.dataset.name || "";
@@ -37,6 +44,13 @@
 
       row.classList.toggle("hidden", !visible);
     });
+  }
+
+  function submitSearchMode(nextMode) {
+    if (!searchForm || !searchModeInput) return;
+    searchMode = nextMode === "grep" ? "grep" : "names";
+    searchModeInput.value = searchMode;
+    searchForm.submit();
   }
 
   function appendSummaryLine(label, value) {
@@ -171,11 +185,40 @@
     }
   }
 
-  if (filterInput) {
-    filterInput.value = getInitialFilter();
+  if (filterInput && searchMode === "names") {
     filterInput.addEventListener("input", applyFilter);
     applyFilter();
   }
+
+  searchForm?.addEventListener("submit", (event) => {
+    if (searchMode !== "names") return;
+    event.preventDefault();
+    applyFilter();
+  });
+
+  searchModeButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      const nextMode = button.dataset.searchMode || "names";
+      if (nextMode === "names" && searchMode === "names") {
+        applyFilter();
+        return;
+      }
+      submitSearchMode(nextMode);
+    });
+  });
+
+  document.querySelectorAll("[data-folder-link]").forEach((link) => {
+    link.addEventListener("click", () => {
+      if (!filterInput) return;
+      const url = new URL(link.href, window.location.href);
+      const query = filterInput.value.trim();
+      if (query) url.searchParams.set("q", query);
+      else url.searchParams.delete("q");
+      if (searchMode === "grep") url.searchParams.set("mode", "grep");
+      else url.searchParams.delete("mode");
+      link.href = url.toString();
+    });
+  });
 
 
   document.querySelectorAll(".rename-markdown").forEach((button) => {

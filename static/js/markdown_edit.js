@@ -2,6 +2,7 @@
   const docId = window.__MARKDOWN_DOC_ID__;
   const editor = document.getElementById("markdown-editor");
   const saveButton = document.getElementById("save-doc");
+  const pageBreakButton = document.getElementById("insert-page-break");
 
   function encodeDocPath(path) {
     return String(path || "")
@@ -31,6 +32,20 @@
       saveButton.disabled = false;
       saveButton.textContent = "SAVE";
     }
+  }
+
+  function insertPageBreak() {
+    const marker = "\n\n<!-- pagebreak -->\n\n";
+    const start = editor.selectionStart;
+    const end = editor.selectionEnd;
+    editor.value = `${editor.value.slice(0, start)}${marker}${editor.value.slice(end)}`;
+    const cursor = start + marker.length;
+    editor.focus();
+    editor.setSelectionRange(cursor, cursor);
+  }
+
+  if (pageBreakButton) {
+    pageBreakButton.addEventListener("click", insertPageBreak);
   }
 
   saveButton.addEventListener("click", saveDoc);

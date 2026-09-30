@@ -24,4 +24,26 @@ class MarkdownViewTests(TestCase):
         self.assertIn('class="hero markdown-sticky-header"', page)
         self.assertIn(">EDIT</a>", page)
         self.assertIn(">ACTIONS</button>", page)
+        self.assertIn('data-md-font-family="serif"', page)
+        self.assertIn('data-md-font-family="book"', page)
         self.assertIn(">LIBRARY</a>", page)
+
+    def test_markdown_page_break_markers_render_as_separators(self) -> None:
+        html = app_module.render_markdown(
+            "# Journal headers\n\n<!-- pagebreak -->\n\n# Sentence starters"
+        )
+
+        self.assertIn(
+            '<div class="markdown-page-break" role="separator" aria-label="Page break"></div>',
+            html,
+        )
+        self.assertIn("<h1", html)
+        self.assertNotIn("<!-- pagebreak -->", html)
+
+    def test_markdown_page_break_marker_skips_fenced_code(self) -> None:
+        transformed = app_module.render_markdown_page_breaks(
+            "```markdown\n<!-- pagebreak -->\n```\n\n---page---"
+        )
+
+        self.assertIn("```markdown\n<!-- pagebreak -->\n```", transformed)
+        self.assertEqual(transformed.count('class="markdown-page-break"'), 1)

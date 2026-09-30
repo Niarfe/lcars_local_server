@@ -10,8 +10,10 @@ from app import (
     get_youtube_sources,
     get_youtube_tag_labels,
     normalize_youtube_tag,
+    normalize_youtube_tag_database,
     parse_tag_list,
     parse_youtube_video_id,
+    youtube_tags_for,
     youtube_metadata_defaults,
 )
 
@@ -45,10 +47,10 @@ class YouTubeUrlTests(TestCase):
         self.assertEqual(defaults["url"], "https://www.youtube.com/shorts/eKg8FmqILhA")
 
     def test_tag_normalization_is_uppercase_and_case_insensitive(self) -> None:
-        self.assertEqual(normalize_youtube_tag("  _French_  "), "_FRENCH_")
+        self.assertEqual(normalize_youtube_tag("  _French_  "), "FRENCH")
         self.assertEqual(
             parse_tag_list("_french_, _FRENCH_\ncar repair"),
-            ["_FRENCH_", "CAR", "REPAIR"],
+            ["FRENCH", "CAR", "REPAIR"],
         )
 
     def test_sources_merge_source_and_item_tags_and_keep_latest_thumbnail(self) -> None:
@@ -84,8 +86,8 @@ class YouTubeUrlTests(TestCase):
 
                 self.assertEqual(len(sources), 1)
                 self.assertEqual(sources[0]["thumbnail_url"], "latest.jpg")
-                self.assertEqual(sources[0]["tags"], ["_FRENCH_", "CAR", "REPAIR"])
-                self.assertEqual(get_youtube_tag_labels(), ["_FRENCH_", "CAR", "REPAIR"])
+                self.assertEqual(sources[0]["tags"], ["CAR", "FRENCH", "REPAIR"])
+                self.assertEqual(get_youtube_tag_labels(), ["CAR", "FRENCH", "REPAIR"])
 
                 self.assertEqual(
                     len(get_youtube_sources(selected_tags=["_FRENCH_", "REPAIR"])),
@@ -95,6 +97,57 @@ class YouTubeUrlTests(TestCase):
                     get_youtube_sources(selected_tags=["_FRENCH_", "MONEY"]),
                     [],
                 )
+
+    def test_tag_database_cleanup_splits_merges_and_removes_orphans(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            database_path = Path(temp_dir) / "youtube.sqlite3"
+            with patch.object(app_module, "YOUTUBE_DB_PATH", database_path):
+                with app_module.get_youtube_db() as conn:
+                    conn.execute(
+                        """
+                        INSERT INTO youtube_sources
+                            (id, name, alias, source_url, thumbnail_url, created_at, updated_at)
+                        VALUES (1, 'Example', '', '', '', '2026-01-01', '2026-01-01')
+                        """
+                    )
+                    conn.execute(
+                        """
+                        INSERT INTO youtube_videos
+                            (id, source_id, video_id, url, title, thumbnail_url, notes, created_at, updated_at)
+                        VALUES (1, 1, 'video001', 'https://example/video', 'Video', '', '', '2026-01-01', '2026-01-01')
+                        """
+                    )
+                    conn.executemany(
+                        "INSERT INTO youtube_tags (id, name) VALUES (?, ?)",
+                        [(1, '_AI_ _JOB_'), (2, '_job_'), (3, 'JOB'), (4, '_ORPHAN_')],
+                    )
+                    conn.execute("INSERT INTO youtube_source_tags VALUES (1, 1)")
+                    conn.executemany(
+                        "INSERT INTO youtube_video_tags VALUES (1, ?)",
+                        [(2,), (3,)],
+                    )
+                    conn.commit()
+
+                result = normalize_youtube_tag_database(database_path)
+                with app_module.get_youtube_db() as conn:
+                    tag_names = [
+                        str(row[0])
+                        for row in conn.execute(
+                            "SELECT name FROM youtube_tags ORDER BY name"
+                        ).fetchall()
+                    ]
+                    source_tags = youtube_tags_for(
+                        conn, "youtube_source_tags", "source_id"
+                    )
+                    video_tags = youtube_tags_for(
+                        conn, "youtube_video_tags", "video_id"
+                    )
+
+                self.assertEqual(tag_names, ["AI", "JOB"])
+                self.assertEqual(source_tags[1], ["AI", "JOB"])
+                self.assertEqual(video_tags[1], ["JOB"])
+                self.assertEqual(result["tags_before"], 4)
+                self.assertEqual(result["tags_after"], 2)
 
     def test_youtube_page_uses_compact_cards_and_footer_utilities(self) -> None:
         with TemporaryDirectory() as temp_dir:
@@ -125,7 +178,7 @@ class YouTubeUrlTests(TestCase):
 
                 self.assertEqual(response.status_code, 200)
                 self.assertIn('class="youtube-tag-nav"', page)
-                self.assertIn("_FRENCH_", page)
+                self.assertIn("FRENCH", page)
                 self.assertIn("1 SOURCES", page)
                 self.assertIn("1 ITEMS", page)
                 self.assertIn("YOUTUBE UTILITIES", page)
@@ -138,8 +191,8 @@ class YouTubeUrlTests(TestCase):
                     "/youtube?tag=_FRENCH_&tag=CAR"
                 )
                 filtered_page = filtered_response.get_data(as_text=True)
-                self.assertIn("TAGS: _FRENCH_ + CAR", filtered_page)
-                self.assertIn("_FRENCH_ ×", filtered_page)
+                self.assertIn("TAGS: FRENCH + CAR", filtered_page)
+                self.assertIn("FRENCH ×", filtered_page)
 
     def test_video_watch_list_and_contextual_tag_choices(self) -> None:
         with TemporaryDirectory() as temp_dir:
@@ -184,9 +237,9 @@ class YouTubeUrlTests(TestCase):
 
                 client = app_module.app.test_client()
                 que_page = client.get("/youtube?view=items&tag=_QUE_").get_data(as_text=True)
-                self.assertIn("_JOB_", que_page)
-                self.assertIn("_FUN_", que_page)
-                self.assertNotIn("_ICE_", que_page)
+                self.assertIn(">JOB</a>", que_page)
+                self.assertIn(">FUN</a>", que_page)
+                self.assertNotIn(">ICE</a>", que_page)
 
                 job_page = client.get(
                     "/youtube?view=items&tag=_QUE_&tag=_JOB_"
@@ -194,13 +247,13 @@ class YouTubeUrlTests(TestCase):
                 self.assertIn("WATCH LIST", job_page)
                 self.assertIn("Job Video", job_page)
                 self.assertNotIn("Fun Video", job_page)
-                self.assertNotIn("_FUN_", job_page)
+                self.assertNotIn(">FUN</a>", job_page)
 
                 ice_page = client.get("/youtube?view=items&tag=_ICE_").get_data(as_text=True)
-                self.assertIn("_ICE_ ×", ice_page)
-                self.assertNotIn("_JOB_", ice_page)
-                self.assertNotIn("_FUN_", ice_page)
+                self.assertIn("ICE ×", ice_page)
+                self.assertNotIn(">JOB</a>", ice_page)
+                self.assertNotIn(">FUN</a>", ice_page)
 
                 stale_page = client.get("/youtube?view=items&tag=_MISSING_").get_data(as_text=True)
-                self.assertIn("_MISSING_ ×", stale_page)
-                self.assertNotIn("_JOB_", stale_page)
+                self.assertIn("MISSING ×", stale_page)
+                self.assertNotIn(">JOB</a>", stale_page)

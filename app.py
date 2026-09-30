@@ -90,6 +90,12 @@ MERMAID_FENCE_RE = re.compile(
     r"(?ms)(^|\n)(?P<fence>`{3,}|~{3,})[ \t]*(?P<info>[^\n]*)\n"
     r"(?P<body>.*?)(?:\n(?P=fence)[ \t]*(?=\n|$))"
 )
+MARKDOWN_FENCE_LINE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
+MARKDOWN_PAGE_BREAK_RE = re.compile(
+    r"^\s*(?:-{3,}\s*(?:page|pagebreak|page-break)\s*-{3,}|"
+    r"<!--\s*(?:pagebreak|page-break|page break)\s*-->)\s*$",
+    re.IGNORECASE,
+)
 
 
 def ensure_content_dirs() -> None:
@@ -874,10 +880,46 @@ def render_mermaid_fences(text: str) -> str:
     return MERMAID_FENCE_RE.sub(replace, text)
 
 
+def render_markdown_page_breaks(text: str) -> str:
+    lines = text.splitlines()
+    output: list[str] = []
+    in_fence = False
+    fence_char = ""
+    fence_len = 0
+
+    for line in lines:
+        fence_match = MARKDOWN_FENCE_LINE_RE.match(line)
+        if fence_match:
+            fence = fence_match.group(1)
+            if not in_fence:
+                in_fence = True
+                fence_char = fence[0]
+                fence_len = len(fence)
+            elif fence[0] == fence_char and len(fence) >= fence_len:
+                in_fence = False
+            output.append(line)
+            continue
+
+        if not in_fence and MARKDOWN_PAGE_BREAK_RE.match(line):
+            if output and output[-1] != "":
+                output.append("")
+            output.append(
+                '<div class="markdown-page-break" role="separator" '
+                'aria-label="Page break"></div>'
+            )
+            output.append("")
+            continue
+
+        output.append(line)
+
+    return "\n".join(output)
+
+
 def render_markdown(text: str) -> str:
     normalized = normalize_markdown_task_lines(text)
     semantic = render_semantic_markdown(normalized)
-    with_diagrams = render_mermaid_fences(semantic)
+    with_page_breaks = render_markdown_page_breaks(semantic)
+    with_diagrams = render_mermaid_fences(with_page_breaks)
     return markdown_to_html(with_diagrams)
 
 
@@ -1278,6 +1320,52 @@ def get_markdown_scope(folder_id: str = "") -> dict[str, Any]:
     }
 
 
+def search_markdown_contents(
+    docs: list[dict[str, str]],
+    query: str,
+    snippet_limit: int = 2,
+) -> list[dict[str, Any]]:
+    needle = query.strip().casefold()
+    if not needle:
+        return [dict(doc) for doc in docs]
+
+    results: list[dict[str, Any]] = []
+    for doc in docs:
+        path = safe_markdown_path(doc["id"])
+        text = path.read_text(encoding="utf-8", errors="replace")
+        matches: list[dict[str, Any]] = []
+        match_count = 0
+        for line_number, line in enumerate(text.splitlines(), start=1):
+            folded_line = line.casefold()
+            occurrences = folded_line.count(needle)
+            if not occurrences:
+                continue
+            match_count += occurrences
+            if len(matches) >= snippet_limit:
+                continue
+
+            clean_line = re.sub(r"\s+", " ", line).strip()
+            match_index = folded_line.find(needle)
+            if len(clean_line) > 220:
+                start = max(0, match_index - 80)
+                end = min(len(clean_line), start + 220)
+                clean_line = (
+                    ("…" if start else "")
+                    + clean_line[start:end].strip()
+                    + ("…" if end < len(clean_line) else "")
+                )
+            matches.append({"line": line_number, "text": clean_line or "(blank line)"})
+
+        if matches:
+            result: dict[str, Any] = dict(doc)
+            result["matches"] = matches
+            result["match_count"] = match_count
+            result["hidden_match_count"] = max(0, match_count - len(matches))
+            results.append(result)
+
+    return results
+
+
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -1465,7 +1553,8 @@ def youtube_metadata_defaults(
 
 
 def normalize_youtube_tag(raw_tag: str) -> str:
-    return re.sub(r"\s+", " ", raw_tag.strip()).upper()
+    normalized = re.sub(r"\s+", " ", raw_tag.strip()).strip("_")
+    return re.sub(r"_+", "_", normalized).upper()
 
 
 def youtube_tag_key(raw_tag: str) -> str:
@@ -1600,6 +1689,97 @@ def replace_youtube_tags(
             f"INSERT OR IGNORE INTO {table} ({owner_column}, tag_id) VALUES (?, ?)",
             (owner_id, tag_id),
         )
+
+
+def normalize_youtube_tag_database(
+    database_path: Path | None = None,
+) -> dict[str, int]:
+    path = database_path or YOUTUBE_DB_PATH
+    conn = sqlite3.connect(path)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    ensure_youtube_schema(conn)
+
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        tags_before = int(conn.execute("SELECT COUNT(*) FROM youtube_tags").fetchone()[0])
+        source_links_before = int(
+            conn.execute("SELECT COUNT(*) FROM youtube_source_tags").fetchone()[0]
+        )
+        video_links_before = int(
+            conn.execute("SELECT COUNT(*) FROM youtube_video_tags").fetchone()[0]
+        )
+
+        source_tags_by_owner: dict[int, set[str]] = {}
+        for row in conn.execute(
+            """
+            SELECT link.source_id AS owner_id, tag.name
+            FROM youtube_source_tags link
+            JOIN youtube_tags tag ON tag.id = link.tag_id
+            """
+        ).fetchall():
+            source_tags_by_owner.setdefault(int(row["owner_id"]), set()).update(
+                parse_tag_list(str(row["name"]))
+            )
+
+        video_tags_by_owner: dict[int, set[str]] = {}
+        for row in conn.execute(
+            """
+            SELECT link.video_id AS owner_id, tag.name
+            FROM youtube_video_tags link
+            JOIN youtube_tags tag ON tag.id = link.tag_id
+            """
+        ).fetchall():
+            video_tags_by_owner.setdefault(int(row["owner_id"]), set()).update(
+                parse_tag_list(str(row["name"]))
+            )
+
+        canonical_tags = sorted(
+            {
+                tag
+                for owner_tags in [*source_tags_by_owner.values(), *video_tags_by_owner.values()]
+                for tag in owner_tags
+            },
+            key=str.casefold,
+        )
+
+        conn.execute("DELETE FROM youtube_source_tags")
+        conn.execute("DELETE FROM youtube_video_tags")
+        conn.execute("DELETE FROM youtube_tags")
+
+        tag_ids: dict[str, int] = {}
+        for tag in canonical_tags:
+            cursor = conn.execute("INSERT INTO youtube_tags (name) VALUES (?)", (tag,))
+            tag_ids[tag] = int(cursor.lastrowid)
+
+        for source_id, tags in source_tags_by_owner.items():
+            for tag in sorted(tags, key=str.casefold):
+                conn.execute(
+                    "INSERT INTO youtube_source_tags (source_id, tag_id) VALUES (?, ?)",
+                    (source_id, tag_ids[tag]),
+                )
+        for video_id, tags in video_tags_by_owner.items():
+            for tag in sorted(tags, key=str.casefold):
+                conn.execute(
+                    "INSERT INTO youtube_video_tags (video_id, tag_id) VALUES (?, ?)",
+                    (video_id, tag_ids[tag]),
+                )
+
+        result = {
+            "tags_before": tags_before,
+            "tags_after": len(canonical_tags),
+            "source_links_before": source_links_before,
+            "source_links_after": sum(len(tags) for tags in source_tags_by_owner.values()),
+            "video_links_before": video_links_before,
+            "video_links_after": sum(len(tags) for tags in video_tags_by_owner.values()),
+        }
+        conn.commit()
+        return result
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def delete_empty_youtube_sources(conn: sqlite3.Connection) -> int:
@@ -2557,13 +2737,31 @@ def reader_page(book_id: str) -> str:
 
 @app.get("/markdown")
 def markdown_page() -> str:
+    query = request.args.get("q", "").strip()[:200]
+    search_mode = "grep" if request.args.get("mode", "").strip().lower() == "grep" else "names"
     try:
         scope = get_markdown_scope(request.args.get("folder", ""))
     except ValueError:
         abort(404)
+    if search_mode == "grep" and query:
+        scope["docs"] = search_markdown_contents(scope["docs"], query)
+
+    navigation_params: dict[str, str] = {}
+    if search_mode == "grep":
+        navigation_params["mode"] = "grep"
+    if query:
+        navigation_params["q"] = query
+    for folder in [*scope["breadcrumbs"], *scope["children"]]:
+        params = dict(navigation_params)
+        if folder["path"]:
+            params["folder"] = folder["path"]
+        folder["url"] = url_for("markdown_page", **params)
+
     return render_template(
         "markdown_list.html",
         **scope,
+        query=query,
+        search_mode=search_mode,
     )
 
 @app.get("/youtube")

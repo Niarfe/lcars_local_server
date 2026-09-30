@@ -9,9 +9,9 @@ import app as app_module
 class MarkdownLibraryTests(TestCase):
     def make_library(self, root: Path) -> None:
         documents = {
-            "root_note.md": "# Root",
+            "root_note.md": "# Root\n\nMeeting notes with Rafael.",
             "jobskills/skills.md": "# Skills",
-            "yt_transcripts/channel_one/direct.md": "# Direct",
+            "yt_transcripts/channel_one/direct.md": "# Direct\n\nStage notes for RAFAEL.",
             "yt_transcripts/channel_one/2026/deep.md": "# Deep",
             "yt_transcripts/channel_two/other.md": "# Other",
         }
@@ -55,6 +55,43 @@ class MarkdownLibraryTests(TestCase):
         self.assertIn("yt_transcripts/channel_one/2026/deep.md", channel_page)
         self.assertNotIn("yt_transcripts/channel_two/other.md", channel_page)
         self.assertIn("INCLUDING SUBFOLDERS", channel_page)
+
+    def test_grep_mode_searches_content_within_current_scope(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            markdown_dir = Path(temp_dir).resolve()
+            self.make_library(markdown_dir)
+
+            with patch.object(app_module, "MARKDOWN_DIR", markdown_dir):
+                client = app_module.app.test_client()
+                root_results = client.get(
+                    "/markdown",
+                    query_string={"mode": "grep", "q": "rafael"},
+                ).get_data(as_text=True)
+                scoped_results = client.get(
+                    "/markdown",
+                    query_string={
+                        "folder": "yt_transcripts/channel_one",
+                        "mode": "grep",
+                        "q": "rafael",
+                    },
+                ).get_data(as_text=True)
+
+        self.assertIn('data-path="root_note.md"', root_results)
+        self.assertIn(
+            'data-path="yt_transcripts/channel_one/direct.md"',
+            root_results,
+        )
+        self.assertIn("Meeting notes with Rafael.", root_results)
+        self.assertIn("Stage notes for RAFAEL.", root_results)
+        self.assertIn("L3", root_results)
+        self.assertIn('data-search-mode="grep"', root_results)
+
+        self.assertNotIn('data-path="root_note.md"', scoped_results)
+        self.assertIn(
+            'data-path="yt_transcripts/channel_one/direct.md"',
+            scoped_results,
+        )
+        self.assertNotIn("jobskills/skills.md", scoped_results)
 
     def test_nested_document_can_be_renamed_in_place(self) -> None:
         with TemporaryDirectory() as temp_dir:
