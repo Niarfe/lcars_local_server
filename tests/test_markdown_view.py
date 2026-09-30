@@ -26,7 +26,7 @@ class MarkdownViewTests(TestCase):
         self.assertIn(">ACTIONS</button>", page)
         self.assertIn('data-md-font-family="serif"', page)
         self.assertIn('data-md-font-family="book"', page)
-        self.assertIn(">LIBRARY</a>", page)
+        self.assertIn('data-markdown-library-link href="/markdown">LIBRARY</a>', page)
 
     def test_markdown_page_break_markers_render_as_separators(self) -> None:
         html = app_module.render_markdown(

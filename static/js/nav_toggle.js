@@ -1,4 +1,5 @@
 (function () {
+  const MARKDOWN_LIBRARY_URL_KEY = "lcars-markdown-library-url";
   const shell = document.querySelector(".shell");
   const nav = document.querySelector(".nav");
   const toggle = document.getElementById("sidebar-toggle");
@@ -17,6 +18,20 @@
 
   applyCollapsed(localStorage.getItem("lcars-nav-collapsed") === "1");
   applyScale(localStorage.getItem("lcars-ui-scale") || "1");
+
+  const savedMarkdownUrl = localStorage.getItem(MARKDOWN_LIBRARY_URL_KEY);
+  if (savedMarkdownUrl) {
+    try {
+      const url = new URL(savedMarkdownUrl, window.location.origin);
+      if (url.origin === window.location.origin && url.pathname === "/markdown") {
+        document.querySelectorAll("[data-markdown-library-link]").forEach((link) => {
+          link.href = `${url.pathname}${url.search}`;
+        });
+      }
+    } catch {
+      localStorage.removeItem(MARKDOWN_LIBRARY_URL_KEY);
+    }
+  }
 
   if (toggle) {
     toggle.addEventListener("click", () => {

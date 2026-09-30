@@ -1,4 +1,5 @@
 (function () {
+  const MARKDOWN_LIBRARY_URL_KEY = "lcars-markdown-library-url";
   const filterInput = document.getElementById("markdown-filter");
   const rows = Array.from(document.querySelectorAll(".markdown-doc-row"));
   const archiveButton = document.getElementById("archive-markdown-context");
@@ -13,6 +14,14 @@
   let searchMode = searchForm?.dataset.mode === "grep" ? "grep" : "names";
   const activeArchiveFolder = archiveButton?.dataset.folder || "";
 
+  function rememberCurrentLibraryUrl() {
+    if (window.location.pathname !== "/markdown") return;
+    localStorage.setItem(
+      MARKDOWN_LIBRARY_URL_KEY,
+      `${window.location.pathname}${window.location.search}`
+    );
+  }
+
   function encodeDocPath(docId) {
     return String(docId || "")
       .split("/")
@@ -26,6 +35,7 @@
     if (query) url.searchParams.set("q", query);
     else url.searchParams.delete("q");
     window.history.replaceState({}, "", url);
+    rememberCurrentLibraryUrl();
   }
 
   function applyFilter() {
@@ -124,7 +134,7 @@
       }
       const commits = (data.archive?.commits || []).map((commit) => commit.hash).filter(Boolean);
       if (archiveStatus) archiveStatus.textContent = commits.length ? `ARCHIVED: ${commits.join(", ")}` : "ARCHIVED";
-      localStorage.removeItem(FILTER_KEY);
+      localStorage.removeItem(MARKDOWN_LIBRARY_URL_KEY);
       window.location.href = "/markdown";
     } catch (error) {
       if (archiveStatus) archiveStatus.textContent = error.message || "ARCHIVE FAILED";
@@ -219,6 +229,8 @@
       link.href = url.toString();
     });
   });
+
+  rememberCurrentLibraryUrl();
 
 
   document.querySelectorAll(".rename-markdown").forEach((button) => {
