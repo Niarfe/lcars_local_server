@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{ doc_name }} - Collated Signature</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/lcars.css') }}" />
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}" />
+    <style>
+      @page { size: letter landscape; margin: 0; }
+      .signature-page { --md-scale: {{ font_scale / 100 }}; }
+    </style>
+  </head>
+  <body
+    class="collate-print-page font-{{ font_family }}"
+    data-auto-print="{{ 'true' if auto_print else 'false' }}"
+  >
+    <header class="signature-print-toolbar">
+      <div>
+        <div class="eyebrow">PRINT COLLATE</div>
+        <h1>{{ doc_name }}</h1>
+        <div class="subtle">{{ sheet_count }} SHEET{% if sheet_count != 1 %}S{% endif %} / SIGNATURE · {{ signature_count }} SIGNATURE{% if signature_count != 1 %}S{% endif %} · DUPLEX SHORT EDGE</div>
+      </div>
+      <button class="badge blue" id="print-collated-document" type="button">PRINT</button>
+    </header>
+
+    <main
+      class="signature-print"
+      data-logical-pages="{{ logical_page_count }}"
+      data-padded-pages="{{ padded_page_count }}"
+    >
+      {% for face in faces %}
+      <section
+        class="signature-face"
+        data-face="{{ face.number }}"
+        data-signature="{{ face.signature }}"
+        data-side="{{ face.side }}"
+      >
+        {% for page in face.pages %}
+        <article
+          class="signature-page markdown-body{% if not page.number %} signature-page-blank{% endif %}"
+          data-logical-page="{{ page.number if page.number else 'blank' }}"
+        >
+          <span class="signature-page-label">{{ page.number if page.number else 'BLANK' }}</span>
+          {% if page.number %}{{ page.rendered|safe }}{% endif %}
+        </article>
+        {% endfor %}
+      </section>
+      {% endfor %}
+    </main>
+
+    <script src="{{ url_for('static', filename='vendor/mermaid/mermaid.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/markdown_collate.js') }}"></script>
+  </body>
+</html>

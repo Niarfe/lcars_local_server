@@ -522,6 +522,13 @@ h1 {
   color: #f4f0e8;
 }
 
+.markdown-edit-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0;
+}
+
 @media (max-width: 900px) {
   .shell, .grid, .stats { grid-template-columns: 1fr; }
   .nav { position: static; max-height: none; overflow: visible; }
@@ -1149,6 +1156,16 @@ h1 {
   color: #111;
 }
 
+.actions-menu button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.actions-menu button:disabled:hover {
+  background: var(--panel-2);
+  color: var(--text);
+}
+
 .hero {
   overflow: visible;
 }
@@ -1254,6 +1271,126 @@ h1 {
 .markdown-body h2 { font-size: calc(1.55em * var(--md-scale)); }
 .markdown-body h3 { font-size: calc(1.3em * var(--md-scale)); }
 .markdown-body h4 { font-size: calc(1.15em * var(--md-scale)); }
+
+/* Collated booklet signatures */
+.collate-print-page {
+  margin: 0;
+  background: #151922;
+  color: #f4f0e8;
+}
+
+.signature-print-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 18px 24px;
+  background: rgba(8, 14, 28, 0.97);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.signature-print-toolbar h1 {
+  margin: 3px 0 5px;
+  font-size: 1.3rem;
+  letter-spacing: 0;
+}
+
+.signature-print {
+  display: grid;
+  gap: 24px;
+  justify-content: center;
+  padding: 24px;
+}
+
+.signature-face {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: min(100%, 1100px);
+  aspect-ratio: 11 / 8.5;
+  box-sizing: border-box;
+  overflow: hidden;
+  background: #ffffff;
+  color: #000000;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+
+.signature-page {
+  position: relative;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+  padding: 4.7% 5.5%;
+  background: #ffffff;
+  color: #000000;
+  border-right: 1px dashed #c8c8c8;
+}
+
+.signature-page:last-child {
+  border-right: 0;
+}
+
+.signature-page-label {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  color: #777777;
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.65rem;
+}
+
+.font-system .signature-page { --md-font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+.font-serif .signature-page { --md-font-family: Georgia, "Times New Roman", serif; }
+.font-book .signature-page { --md-font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif; }
+.font-mono .signature-page { --md-font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+
+@media print {
+  .collate-print-page {
+    background: #ffffff !important;
+  }
+
+  .signature-print-toolbar {
+    display: none !important;
+  }
+
+  .signature-print {
+    display: block !important;
+    padding: 0 !important;
+  }
+
+  .signature-face {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    width: 11in !important;
+    height: 8.5in !important;
+    padding: 0.38in 0.28in !important;
+    overflow: hidden !important;
+    box-shadow: none !important;
+    break-after: page;
+    page-break-after: always;
+  }
+
+  .signature-face:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+
+  .signature-page {
+    height: 7.74in !important;
+    padding: 0.12in 0.28in !important;
+    overflow: hidden !important;
+    border-right: 0 !important;
+    font-family: var(--md-font-family) !important;
+    font-size: calc(11pt * var(--md-scale)) !important;
+    line-height: 1.4 !important;
+  }
+
+  .signature-page-label {
+    display: none !important;
+  }
+}
 
 .rename-markdown,
 #rename-markdown-current {
@@ -1438,9 +1575,9 @@ body {
   margin-bottom: 12px;
 }
 
-.markdown-folder-filter,
-.markdown-folder-crumb,
-.markdown-folder-child {
+.markdown-folder-contexts .markdown-folder-filter,
+.markdown-folder-contexts .markdown-folder-crumb,
+.markdown-folder-contexts .markdown-folder-child {
   text-transform: uppercase;
 }
 
@@ -1515,10 +1652,73 @@ body {
   align-items: center;
 }
 
+.markdown-sidebar-nav {
+  display: grid;
+  gap: 10px;
+  margin-top: 8px;
+  padding-top: 16px;
+  border-top: 2px solid rgba(230, 195, 106, 0.32);
+}
+
+.markdown-sidebar-title {
+  color: var(--gold);
+  font-size: 0.72rem;
+  font-weight: 900;
+  letter-spacing: 0.18em;
+}
+
+.markdown-sidebar-links {
+  display: grid;
+  gap: 7px;
+}
+
+.markdown-sidebar-folder,
+.markdown-sidebar-empty {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  overflow-wrap: anywhere;
+}
+
+.markdown-sidebar-folder.current {
+  background: var(--orange);
+  color: #111;
+  outline: 0;
+}
+
+.markdown-sidebar-folder.ancestor {
+  background: rgba(230, 195, 106, 0.22);
+  color: var(--gold);
+}
+
+.markdown-sidebar-folder.markdown-folder-child:hover {
+  background: rgba(121, 184, 255, 0.24);
+  color: #d6ebff;
+}
+
+.markdown-folder-depth {
+  flex: 0 0 auto;
+  min-width: 0.9em;
+  color: currentColor;
+  opacity: 0.65;
+}
+
+.markdown-sidebar-empty {
+  color: var(--muted);
+}
+
 .markdown-folder-contexts .mini,
-.markdown-folder-filter,
-.markdown-folder-crumb,
-.markdown-folder-child {
+.markdown-folder-contexts .markdown-folder-filter,
+.markdown-folder-contexts .markdown-folder-crumb,
+.markdown-folder-contexts .markdown-folder-child {
   font-size: 0.78rem !important;
   line-height: 1 !important;
   padding: 8px 13px !important;

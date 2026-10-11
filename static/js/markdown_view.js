@@ -1,5 +1,7 @@
 (function () {
   const printButton = document.getElementById("print-markdown");
+  const refreshTodoButton = document.getElementById("refresh-todo-view");
+  const openFolderButton = document.getElementById("open-markdown-folder");
   const surface = document.getElementById("markdown-surface");
   const body = document.getElementById("markdown-body");
 
@@ -11,6 +13,7 @@
   const fontReset = document.getElementById("md-font-reset");
   const fontPlus = document.getElementById("md-font-plus");
   const fontFamilyButtons = Array.from(document.querySelectorAll("[data-md-font-family]"));
+  const collateLinks = Array.from(document.querySelectorAll("[data-print-collate]"));
 
   const themeKey = "lcars-markdown-theme";
   const fontKey = `markdown-font-scale:${window.location.pathname}`;
@@ -31,6 +34,28 @@
       .split("/")
       .map((part) => encodeURIComponent(part))
       .join("/");
+  }
+
+  async function openMarkdownFolder(button) {
+    const docId = button.dataset.docId || "";
+    button.disabled = true;
+    const previousText = button.textContent;
+    button.textContent = "OPENING";
+
+    try {
+      const response = await fetch(`/api/markdown/open-folder/${encodeDocPath(docId)}`, {
+        method: "POST"
+      });
+      const data = await response.json();
+      if (!data.ok) {
+        alert(data.error || "Could not open folder");
+      }
+    } catch (error) {
+      alert(error.message || "Could not open folder");
+    } finally {
+      button.disabled = false;
+      button.textContent = previousText;
+    }
   }
 
   function getActiveTheme() {
@@ -200,6 +225,7 @@
     fontScale = Math.max(75, Math.min(140, fontScale));
     body.style.setProperty("--md-scale", String(fontScale / 100));
     localStorage.setItem(fontKey, String(fontScale));
+    updateCollateLinks();
   }
 
   function applyFontFamily() {
@@ -211,6 +237,16 @@
       button.classList.toggle("active", button.dataset.mdFontFamily === fontFamily);
     });
     localStorage.setItem(fontFamilyKey, fontFamily);
+    updateCollateLinks();
+  }
+
+  function updateCollateLinks() {
+    collateLinks.forEach((link) => {
+      const url = new URL(link.dataset.collateUrl || link.href, window.location.origin);
+      url.searchParams.set("font", fontFamily);
+      url.searchParams.set("scale", String(fontScale));
+      link.href = `${url.pathname}${url.search}`;
+    });
   }
 
   function installCodeCopyButtons() {
@@ -241,6 +277,30 @@
   }
 
   if (printButton) printButton.addEventListener("click", () => window.print());
+
+  if (refreshTodoButton) {
+    refreshTodoButton.addEventListener("click", async () => {
+      const docId = refreshTodoButton.dataset.docId || "";
+      refreshTodoButton.disabled = true;
+      refreshTodoButton.textContent = "REFRESHING";
+      try {
+        const response = await fetch(`/api/markdown/todo/refresh/${encodeDocPath(docId)}`, {
+          method: "POST"
+        });
+        const data = await response.json();
+        if (data.ok) {
+          window.location.href = data.url || window.location.href;
+        } else {
+          alert(data.error || "Todo refresh failed");
+        }
+      } catch (error) {
+        alert(error.message || "Todo refresh failed");
+      } finally {
+        refreshTodoButton.disabled = false;
+        refreshTodoButton.textContent = "REFRESH TODO";
+      }
+    });
+  }
 
   if (whiteButton) whiteButton.addEventListener("click", () => applyTheme("white"));
   if (paperButton) paperButton.addEventListener("click", () => applyTheme("paper"));
@@ -279,6 +339,9 @@
   applyFontFamily();
   installCodeCopyButtons();
 
+  if (openFolderButton) {
+    openFolderButton.addEventListener("click", () => openMarkdownFolder(openFolderButton));
+  }
 
   const renameButton = document.getElementById("rename-markdown-current");
   if (renameButton) {

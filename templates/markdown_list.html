@@ -1,5 +1,32 @@
 {% extends "base.html" %}
 {% block title %}LCARS Markdown{% endblock %}
+{% block sidebar_extra %}
+<nav class="markdown-sidebar-nav" aria-label="Markdown folders">
+  <div class="markdown-sidebar-title">FOLDERS</div>
+  <div class="markdown-sidebar-links">
+    {% for folder in breadcrumbs %}
+    <a
+      class="markdown-sidebar-folder markdown-folder-crumb{% if loop.last %} current{% else %} ancestor{% endif %}"
+      data-folder-link="{{ folder.path }}"
+      href="{{ folder.url }}"
+      {% if loop.last %}aria-current="page"{% endif %}
+    >
+      <span class="markdown-folder-depth" aria-hidden="true">{{ ">" * loop.index0 }}</span>
+      <span>{{ folder.name|upper }}</span>
+    </a>
+    {% endfor %}
+    {% for folder in children %}
+    <a class="markdown-sidebar-folder markdown-folder-child" data-folder-link="{{ folder.path }}" href="{{ folder.url }}">
+      <span class="markdown-folder-depth" aria-hidden="true">{{ ">" * (breadcrumbs|length) }}</span>
+      <span>{{ folder.name|upper }}</span>
+    </a>
+    {% endfor %}
+    {% if not children and not current_folder %}
+    <div class="markdown-sidebar-empty">NO FOLDERS YET</div>
+    {% endif %}
+  </div>
+</nav>
+{% endblock %}
 {% block content %}
 <header class="hero">
   <div>
@@ -18,22 +45,6 @@
     <span>AVAILABLE DOCUMENTS</span>
     <span class="subtle">INCLUDING SUBFOLDERS · .MD</span>
   </div>
-  <nav class="markdown-folder-contexts" aria-label="Markdown folder scope">
-    {% for folder in breadcrumbs %}
-    <a
-      class="mini markdown-folder-crumb{% if loop.last %} current{% else %} ancestor{% endif %}"
-      data-folder-link="{{ folder.path }}"
-      href="{{ folder.url }}"
-      {% if loop.last %}aria-current="page"{% endif %}
-    >{{ folder.name|upper }}</a>
-    {% endfor %}
-    {% for folder in children %}
-    <a class="mini alt markdown-folder-child" data-folder-link="{{ folder.path }}" href="{{ folder.url }}">{{ folder.name|upper }}</a>
-    {% endfor %}
-    {% if not children and not current_folder %}
-    <span class="subtle">No folder scopes yet. Create folders under <code>markdown/</code>.</span>
-    {% endif %}
-  </nav>
 
   <form class="markdown-search-row" id="markdown-search-form" action="{{ url_for('markdown_page') }}" method="get" data-mode="{{ search_mode }}">
     {% if current_folder %}<input type="hidden" name="folder" value="{{ current_folder }}" />{% endif %}

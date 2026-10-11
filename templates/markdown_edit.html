@@ -9,6 +9,7 @@
   </div>
   <div class="hero-badges">
     <button class="badge alt" id="insert-page-break" type="button">PAGE BREAK</button>
+    <button class="badge alt" id="open-markdown-folder" data-doc-id="{{ doc_id }}" type="button">FINDER</button>
     <button class="badge" id="save-doc">SAVE</button>
     <a class="badge alt linklike" href="{{ url_for('markdown_view', doc_id=doc_id) }}">CANCEL</a>
   </div>
@@ -16,6 +17,11 @@
 
 <section class="reader-panel">
   <div class="markdown-meta">{{ file_path }} · EDITOR EXPANDS WIDE FOR TABLES</div>
+  <div class="markdown-edit-toolbar" aria-label="Markdown editing tools">
+    <button class="mini" id="toggle-blockquote" type="button" title="Toggle blockquote on selected lines (Cmd/Ctrl+Shift+.)">QUOTE</button>
+    <button class="mini alt" id="move-lines-up" type="button" title="Move selected lines up (Alt+Up or Alt+K)">LINE UP</button>
+    <button class="mini alt" id="move-lines-down" type="button" title="Move selected lines down (Alt+Down or Alt+J)">LINE DOWN</button>
+  </div>
   <textarea class="markdown-editor" id="markdown-editor">{{ source_text }}</textarea>
 </section>
 

@@ -32,6 +32,8 @@
           <a class="nav-pill gold" href="{{ url_for('markdown_new') }}">NEW MD</a>
           <div id="markdown-doc-links" class="doc-nav-list"></div>
         </div>
+
+        {% block sidebar_extra %}{% endblock %}
       </aside>
 
       <main class="main {% block main_class %}{% endblock %}">

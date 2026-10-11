@@ -45,11 +45,17 @@ class MarkdownLibraryTests(TestCase):
         self.assertNotIn("root_note.md", transcript_page)
         self.assertIn("yt_transcripts/channel_one/direct.md", transcript_page)
         self.assertIn("yt_transcripts/channel_one/2026/deep.md", transcript_page)
-        self.assertIn('class="mini markdown-folder-crumb current"', transcript_page)
+        self.assertIn(
+            'class="markdown-sidebar-folder markdown-folder-crumb current"',
+            transcript_page,
+        )
         self.assertIn('data-folder-link="yt_transcripts/channel_one"', transcript_page)
         self.assertIn('data-folder-link="yt_transcripts/channel_two"', transcript_page)
 
-        self.assertIn('class="mini markdown-folder-crumb ancestor"', channel_page)
+        self.assertIn(
+            'class="markdown-sidebar-folder markdown-folder-crumb ancestor"',
+            channel_page,
+        )
         self.assertIn('data-folder-link="yt_transcripts/channel_one/2026"', channel_page)
         self.assertIn("yt_transcripts/channel_one/direct.md", channel_page)
         self.assertIn("yt_transcripts/channel_one/2026/deep.md", channel_page)
@@ -115,3 +121,23 @@ class MarkdownLibraryTests(TestCase):
                 response.get_json()["url"],
                 "/md/view/yt_transcripts/channel_one/new_name.md",
             )
+
+    def test_open_folder_endpoint_opens_containing_markdown_folder(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            markdown_dir = Path(temp_dir).resolve()
+            document = markdown_dir / "job" / "project" / "source.md"
+            document.parent.mkdir(parents=True)
+            document.write_text("# Source", encoding="utf-8")
+
+            with (
+                patch.object(app_module, "MARKDOWN_DIR", markdown_dir),
+                patch.object(app_module, "open_local_file") as open_local_file,
+            ):
+                response = app_module.app.test_client().post(
+                    "/api/markdown/open-folder/job/project/source.md"
+                )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.get_json()["ok"])
+        self.assertEqual(response.get_json()["path"], "job/project")
+        open_local_file.assert_called_once_with(document.parent)

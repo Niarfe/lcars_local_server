@@ -9,11 +9,12 @@ import shutil
 import sqlite3
 import subprocess
 from datetime import datetime, timezone
-from pathlib import Path
+from html.parser import HTMLParser
 from html import escape
+from pathlib import Path
 from typing import Any
 from urllib.error import URLError
-from urllib.parse import parse_qs, quote, urlencode, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse
 from urllib.request import Request, urlopen
 
 import markdown as mdlib
@@ -25,6 +26,8 @@ except ImportError:
     boto3 = None
 from flask import Flask, abort, jsonify, redirect, render_template, request, send_file, url_for
 from jupyter_server.serverapp import list_running_servers
+
+from scripts import build_todo as todo_builder
 
 app = Flask(__name__)
 BASE_DIR = Path.home()
@@ -86,6 +89,18 @@ MARKDOWN_EXTENSION_CONFIGS = {
         "use_pygments": True,
     }
 }
+MARKDOWN_IMAGE_EXTENSIONS = {
+    ".apng",
+    ".avif",
+    ".bmp",
+    ".gif",
+    ".ico",
+    ".jpeg",
+    ".jpg",
+    ".png",
+    ".svg",
+    ".webp",
+}
 MERMAID_FENCE_RE = re.compile(
     r"(?ms)(^|\n)(?P<fence>`{3,}|~{3,})[ \t]*(?P<info>[^\n]*)\n"
     r"(?P<body>.*?)(?:\n(?P=fence)[ \t]*(?=\n|$))"
@@ -113,6 +128,9 @@ YOUTUBE_INBOX_SOURCE = "YouTube Inbox"
 YOUTUBE_VIDEO_HOSTS = {"youtube.com", "m.youtube.com", "music.youtube.com"}
 YOUTUBE_DIRECT_VIDEO_PATHS = {"shorts", "embed", "live", "v"}
 YOUTUBE_VIDEO_ID_RE = re.compile(r"[A-Za-z0-9_-]{6,}")
+TODO_FOLDER = todo_builder.DEFAULT_FOLDER
+TODO_OUTPUT = todo_builder.DEFAULT_OUTPUT
+TODO_DOC_ID = f"{TODO_FOLDER}/{TODO_OUTPUT}"
 
 ALLOWED_ACTIONS: dict[str, list[str]] = {
     "open_documents": ["open", str(BASE_DIR / "Documents")],
@@ -658,6 +676,16 @@ def safe_markdown_path(doc_id: str) -> Path:
         raise ValueError("Only .md files are supported")
     return candidate
 
+def safe_markdown_asset_path(asset_id: str) -> Path:
+    candidate = (MARKDOWN_DIR / asset_id).resolve()
+    try:
+        candidate.relative_to(MARKDOWN_DIR.resolve())
+    except ValueError as exc:
+        raise ValueError("Invalid markdown asset path") from exc
+    if candidate.suffix.lower() not in MARKDOWN_IMAGE_EXTENSIONS:
+        raise ValueError("Only Markdown image assets are supported")
+    return candidate
+
 def safe_markdown_folder_path(folder_id: str) -> Path:
     folder_id = folder_id.strip("/")
     if not folder_id:
@@ -675,6 +703,58 @@ def safe_markdown_top_folder(folder_id: str) -> tuple[str, Path]:
         raise ValueError("Invalid markdown folder")
     path = safe_markdown_folder_path(folder)
     return folder, path
+
+
+def normalize_doc_id(doc_id: str) -> str:
+    return Path(doc_id).as_posix().strip("/")
+
+
+def is_todo_output_doc(doc_id: str) -> bool:
+    return normalize_doc_id(doc_id) == TODO_DOC_ID
+
+
+def current_request_base_url() -> str:
+    return request.host_url.rstrip("/")
+
+
+def refresh_todo_view(
+    *,
+    folder: str = TODO_FOLDER,
+    output: str = TODO_OUTPUT,
+    base_url: str | None = None,
+) -> dict[str, Any]:
+    folder = folder.strip("/")
+    if folder != TODO_FOLDER or output != TODO_OUTPUT:
+        raise ValueError("Unsupported todo target")
+
+    safe_markdown_folder_path(folder)
+    output_path = safe_markdown_path(f"{folder}/{output}")
+    items, stragglers = todo_builder.collect_todos(
+        MARKDOWN_DIR,
+        folder,
+        output_path,
+        default_quadrant=3,
+    )
+    generated = todo_builder.build_generated_view(
+        items,
+        stragglers,
+        MARKDOWN_DIR,
+        base_url or todo_builder.DEFAULT_BASE_URL,
+    )
+    existing = output_path.read_text(encoding="utf-8", errors="replace") if output_path.exists() else ""
+    updated = todo_builder.merge_generated_view(existing, generated)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    changed = existing != updated
+    if changed:
+        output_path.write_text(updated, encoding="utf-8")
+
+    return {
+        "path": output_path,
+        "items": len(items),
+        "no_next_action": len(stragglers),
+        "changed": changed,
+    }
+
 
 def git_root_for_content() -> Path:
     completed = subprocess.run(
@@ -854,13 +934,86 @@ def archive_markdown_folder(folder_id: str) -> dict[str, Any]:
         "commits": commits,
     }
 
-def markdown_to_html(text: str) -> str:
-    return mdlib.markdown(
+def markdown_image_asset_url(src: str, doc_id: str) -> str:
+    parsed = urlparse(src)
+    if src.startswith(("/", "#")) or parsed.scheme or parsed.netloc or not parsed.path:
+        return src
+
+    doc_folder = Path(doc_id).parent
+    asset_path = (MARKDOWN_DIR / doc_folder / unquote(parsed.path)).resolve()
+    try:
+        rel_asset = asset_path.relative_to(MARKDOWN_DIR.resolve()).as_posix()
+    except ValueError:
+        return src
+
+    rewritten = url_for("markdown_asset", asset_id=rel_asset)
+    if parsed.query:
+        rewritten = f"{rewritten}?{parsed.query}"
+    if parsed.fragment:
+        rewritten = f"{rewritten}#{parsed.fragment}"
+    return rewritten
+
+
+class MarkdownImageAssetRewriter(HTMLParser):
+    def __init__(self, doc_id: str) -> None:
+        super().__init__(convert_charrefs=False)
+        self.doc_id = doc_id
+        self.parts: list[str] = []
+
+    def rewrite(self, html: str) -> str:
+        self.feed(html)
+        self.close()
+        return "".join(self.parts)
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self.parts.append(f"<{tag}{self.format_attrs(tag, attrs)}>")
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self.parts.append(f"<{tag}{self.format_attrs(tag, attrs)} />")
+
+    def handle_endtag(self, tag: str) -> None:
+        self.parts.append(f"</{tag}>")
+
+    def handle_data(self, data: str) -> None:
+        self.parts.append(data)
+
+    def handle_entityref(self, name: str) -> None:
+        self.parts.append(f"&{name};")
+
+    def handle_charref(self, name: str) -> None:
+        self.parts.append(f"&#{name};")
+
+    def handle_comment(self, data: str) -> None:
+        self.parts.append(f"<!--{data}-->")
+
+    def handle_decl(self, decl: str) -> None:
+        self.parts.append(f"<!{decl}>")
+
+    def handle_pi(self, data: str) -> None:
+        self.parts.append(f"<?{data}>")
+
+    def format_attrs(self, tag: str, attrs: list[tuple[str, str | None]]) -> str:
+        formatted = []
+        for name, value in attrs:
+            if tag.lower() == "img" and name.lower() == "src" and value:
+                value = markdown_image_asset_url(value, self.doc_id)
+            if value is None:
+                formatted.append(f" {name}")
+            else:
+                formatted.append(f' {name}="{escape(value, quote=True)}"')
+        return "".join(formatted)
+
+
+def markdown_to_html(text: str, doc_id: str | None = None) -> str:
+    html = mdlib.markdown(
         text,
         extensions=MARKDOWN_EXTENSIONS,
         extension_configs=MARKDOWN_EXTENSION_CONFIGS,
         output_format="html5",
     )
+    if doc_id:
+        return MarkdownImageAssetRewriter(doc_id).rewrite(html)
+    return html
 
 
 def is_mermaid_fence_info(info: str) -> bool:
@@ -915,12 +1068,83 @@ def render_markdown_page_breaks(text: str) -> str:
     return "\n".join(output)
 
 
-def render_markdown(text: str) -> str:
+def split_markdown_pages(text: str) -> list[str]:
+    lines = text.splitlines(keepends=True)
+    pages: list[str] = []
+    current_page: list[str] = []
+    found_page_break = False
+    in_fence = False
+    fence_char = ""
+    fence_len = 0
+
+    for line in lines:
+        line_text = line.rstrip("\r\n")
+        fence_match = MARKDOWN_FENCE_LINE_RE.match(line_text)
+        if fence_match:
+            fence = fence_match.group(1)
+            if not in_fence:
+                in_fence = True
+                fence_char = fence[0]
+                fence_len = len(fence)
+            elif fence[0] == fence_char and len(fence) >= fence_len:
+                in_fence = False
+            current_page.append(line)
+            continue
+
+        if not in_fence and MARKDOWN_PAGE_BREAK_RE.match(line_text):
+            pages.append("".join(current_page).strip("\r\n"))
+            current_page = []
+            found_page_break = True
+            continue
+
+        current_page.append(line)
+
+    if not found_page_break:
+        return []
+
+    pages.append("".join(current_page).strip("\r\n"))
+    return pages
+
+
+def markdown_signature_page_order(page_count: int, sheet_count: int) -> list[int | None]:
+    if sheet_count not in {1, 2, 3, 4}:
+        raise ValueError("Signature sheet count must be between 1 and 4")
+    if page_count < 1:
+        return []
+
+    signature_capacity = sheet_count * 4
+    padded_count = (
+        (page_count + signature_capacity - 1) // signature_capacity
+    ) * signature_capacity
+    page_numbers: list[int | None] = list(range(1, page_count + 1))
+    page_numbers.extend([None] * (padded_count - page_count))
+
+    imposed: list[int | None] = []
+    for start in range(0, padded_count, signature_capacity):
+        signature = page_numbers[start:start + signature_capacity]
+        low = 0
+        high = signature_capacity - 1
+        while low < high:
+            imposed.extend(
+                [
+                    signature[high],
+                    signature[low],
+                    signature[low + 1],
+                    signature[high - 1],
+                ]
+            )
+            low += 2
+            high -= 2
+
+    return imposed
+
+
+def render_markdown(text: str, doc_id: str | None = None) -> str:
     normalized = normalize_markdown_task_lines(text)
     semantic = render_semantic_markdown(normalized)
     with_page_breaks = render_markdown_page_breaks(semantic)
     with_diagrams = render_mermaid_fences(with_page_breaks)
-    return markdown_to_html(with_diagrams)
+    return markdown_to_html(with_diagrams, doc_id)
 
 
 def get_tmux_sessions() -> list[dict[str, Any]]:
@@ -3078,14 +3302,96 @@ def markdown_view(doc_id: str) -> Any:
     if not doc_path.exists():
         abort(404)
     text = doc_path.read_text(encoding="utf-8", errors="replace")
+    has_page_breaks = bool(split_markdown_pages(text))
     return render_template(
         "markdown_view.html",
         doc_id=doc_id,
         doc_name=doc_path.stem.replace("_", " ").replace("-", " ").title(),
-        rendered=render_markdown(text),
+        rendered=render_markdown(text, doc_id),
         source_text=text,
         file_path=doc_path.relative_to(MARKDOWN_DIR).as_posix(),
+        has_page_breaks=has_page_breaks,
+        can_refresh_todo=is_todo_output_doc(doc_id),
     )
+
+
+@app.get("/md/asset/<path:asset_id>")
+def markdown_asset(asset_id: str) -> Any:
+    try:
+        asset_path = safe_markdown_asset_path(asset_id)
+    except ValueError:
+        abort(404)
+    if not asset_path.exists() or not asset_path.is_file():
+        abort(404)
+    return send_file(
+        asset_path,
+        as_attachment=False,
+        download_name=asset_path.name,
+    )
+
+
+@app.get("/md/print-collate/<int:sheet_count>/<path:doc_id>")
+def markdown_print_collate(sheet_count: int, doc_id: str) -> Any:
+    if sheet_count not in {1, 2, 3, 4}:
+        abort(404)
+    try:
+        doc_path = safe_markdown_path(doc_id)
+    except ValueError:
+        abort(404)
+    if not doc_path.exists():
+        abort(404)
+
+    source_text = doc_path.read_text(encoding="utf-8", errors="replace")
+    source_pages = split_markdown_pages(source_text)
+    if not source_pages:
+        abort(400, description="Markdown document has no page-break markers")
+
+    page_order = markdown_signature_page_order(len(source_pages), sheet_count)
+    rendered_pages = [render_markdown(page, doc_id) for page in source_pages]
+    faces: list[dict[str, Any]] = []
+    faces_per_signature = sheet_count * 2
+    for offset in range(0, len(page_order), 2):
+        face_index = offset // 2
+        face_pages = []
+        for page_number in page_order[offset:offset + 2]:
+            face_pages.append(
+                {
+                    "number": page_number,
+                    "rendered": rendered_pages[page_number - 1] if page_number else "",
+                }
+            )
+        faces.append(
+            {
+                "number": face_index + 1,
+                "signature": (face_index // faces_per_signature) + 1,
+                "side": "front" if face_index % 2 == 0 else "back",
+                "pages": face_pages,
+            }
+        )
+
+    font_family = request.args.get("font", "system").strip().lower()
+    if font_family not in {"system", "serif", "book", "mono"}:
+        font_family = "system"
+    try:
+        font_scale = int(request.args.get("scale", "100"))
+    except ValueError:
+        font_scale = 100
+    font_scale = max(75, min(140, font_scale))
+
+    return render_template(
+        "markdown_collate.html",
+        doc_name=doc_path.stem.replace("_", " ").replace("-", " ").title(),
+        file_path=doc_path.relative_to(MARKDOWN_DIR).as_posix(),
+        sheet_count=sheet_count,
+        logical_page_count=len(source_pages),
+        padded_page_count=len(page_order),
+        signature_count=len(page_order) // (sheet_count * 4),
+        faces=faces,
+        font_family=font_family,
+        font_scale=font_scale,
+        auto_print=request.args.get("autoprint", "1") != "0",
+    )
+
 
 @app.get("/md/edit/<path:doc_id>")
 def markdown_edit(doc_id: str) -> str:
@@ -3255,6 +3561,31 @@ def api_markdown_rename(doc_id: str) -> Any:
     })
 
 
+@app.post("/api/markdown/open-folder/<path:doc_id>")
+def api_markdown_open_folder(doc_id: str) -> Any:
+    try:
+        path = safe_markdown_path(doc_id)
+    except ValueError:
+        return jsonify({"ok": False, "error": "Invalid markdown path"}), 404
+
+    if not path.exists():
+        return jsonify({"ok": False, "error": "Document not found"}), 404
+
+    folder = path.parent
+    if not folder.exists() or not folder.is_dir():
+        return jsonify({"ok": False, "error": "Folder not found"}), 404
+
+    try:
+        open_local_file(folder)
+    except RuntimeError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 503
+
+    return jsonify({
+        "ok": True,
+        "path": folder.relative_to(MARKDOWN_DIR).as_posix(),
+    })
+
+
 
 @app.get("/api/lcars-lab/status")
 def api_lcars_lab_status() -> Any:
@@ -3416,7 +3747,7 @@ def api_markdown_doc(doc_id: str) -> Any:
         "name": path.stem.replace("_", " ").replace("-", " ").title(),
         "path": path.relative_to(MARKDOWN_DIR).as_posix(),
         "text": text,
-        "rendered": render_markdown(text),
+        "rendered": render_markdown(text, doc_id),
         "mtime": path.stat().st_mtime,
     })
 
@@ -3435,6 +3766,28 @@ def api_markdown_save(doc_id: str) -> Any:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
     return jsonify({"ok": True, "mtime": path.stat().st_mtime})
+
+
+@app.post("/api/markdown/todo/refresh/<path:doc_id>")
+def api_markdown_todo_refresh(doc_id: str) -> Any:
+    if not is_todo_output_doc(doc_id):
+        return jsonify({"ok": False, "error": "Document is not a todo output"}), 404
+
+    try:
+        result = refresh_todo_view(base_url=current_request_base_url())
+    except (FileNotFoundError, ValueError) as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+    path = result["path"]
+    return jsonify({
+        "ok": True,
+        "url": url_for("markdown_view", doc_id=TODO_DOC_ID),
+        "items": result["items"],
+        "no_next_action": result["no_next_action"],
+        "changed": result["changed"],
+        "mtime": path.stat().st_mtime,
+    })
+
 
 @app.post("/api/action/<action_name>")
 def run_action(action_name: str) -> Any:

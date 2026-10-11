@@ -9,6 +9,7 @@
   </div>
   <div class="hero-badges">
     <a class="badge alt linklike" href="{{ url_for('markdown_edit', doc_id=doc_id) }}">EDIT</a>
+    <button class="badge alt" id="open-markdown-folder" data-doc-id="{{ doc_id }}" type="button">FINDER</button>
     <div class="dropdown actions-dropdown">
       <button class="badge blue dropdown-toggle actions-toggle" type="button">ACTIONS</button>
       <div class="dropdown-menu actions-menu">
@@ -35,6 +36,25 @@
         </div>
 
         <button class="dropdown-item" id="print-markdown" type="button">PRINT</button>
+        {% if can_refresh_todo %}
+        <button class="dropdown-item" id="refresh-todo-view" data-doc-id="{{ doc_id }}" type="button">REFRESH TODO</button>
+        {% endif %}
+        <div class="submenu">
+          <button class="dropdown-item submenu-toggle" id="print-collate-toggle" type="button"{% if not has_page_breaks %} disabled aria-disabled="true" title="Page-break markers required"{% endif %}>PRINT COLLATE</button>
+          {% if has_page_breaks %}
+          <div class="submenu-menu">
+            {% for sheet_count in range(1, 5) %}
+            <a
+              class="dropdown-item"
+              data-print-collate
+              data-collate-url="{{ url_for('markdown_print_collate', sheet_count=sheet_count, doc_id=doc_id) }}"
+              href="{{ url_for('markdown_print_collate', sheet_count=sheet_count, doc_id=doc_id) }}"
+              target="_blank"
+            >{{ sheet_count }} SHEET{% if sheet_count != 1 %}S{% endif %}</a>
+            {% endfor %}
+          </div>
+          {% endif %}
+        </div>
         <button class="dropdown-item" id="rename-markdown-current" data-doc-id="{{ doc_id }}" data-doc-name="{{ doc_name }}" type="button">RENAME</button>
         <button class="dropdown-item" id="delete-markdown-current" data-doc-id="{{ doc_id }}" data-doc-name="{{ doc_name }}" type="button">DELETE</button>
       </div>
