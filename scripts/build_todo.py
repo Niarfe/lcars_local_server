@@ -207,6 +207,7 @@ def collect_todos(
     output_path: Path,
     default_quadrant: int,
 ) -> tuple[list[TodoItem], list[Path]]:
+    markdown_root = markdown_root.resolve()
     todo_dir = (markdown_root / folder).resolve()
     if not todo_dir.is_dir():
         raise FileNotFoundError(f"Todo folder not found: {todo_dir}")
@@ -215,7 +216,11 @@ def collect_todos(
     items: list[TodoItem] = []
     stragglers: list[Path] = []
 
-    for path in sorted(todo_dir.glob("*.md"), key=lambda candidate: candidate.name.lower()):
+    markdown_paths = sorted(
+        todo_dir.rglob("*.md"),
+        key=lambda candidate: candidate.relative_to(markdown_root).as_posix().casefold(),
+    )
+    for path in markdown_paths:
         if path.resolve() == output_path:
             continue
         file_items = scan_file(path, markdown_root, default_quadrant)

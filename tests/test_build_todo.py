@@ -96,3 +96,29 @@ class BuildTodoTests(TestCase):
         self.assertIn("## NO NEXT ACTION\n* [Done Item]", content)
         self.assertIn("## **@WaitingFor**\n* Keep this manual section", content)
         self.assertNotIn("* stale", content)
+
+    def test_collect_todos_recurses_into_subfolders(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            markdown_root = Path(temp_dir)
+            todo_dir = markdown_root / "0000"
+            truck_dir = todo_dir / "RAM1500"
+            truck_dir.mkdir(parents=True)
+            (truck_dir / "smog.md").write_text(
+                "# Smog\n\n<!-- #%TODO RAM1500 II Clean out the inside of truck -->\n",
+                encoding="utf-8",
+            )
+            output = todo_dir / "00_todo_list.md"
+            output.write_text("# Todo\n", encoding="utf-8")
+
+            items, stragglers = build_todo.collect_todos(
+                markdown_root,
+                "0000",
+                output,
+                default_quadrant=3,
+            )
+
+        self.assertEqual(len(items), 1)
+        self.assertEqual(items[0].label, "RAM1500")
+        self.assertEqual(items[0].quadrant, 2)
+        self.assertEqual(items[0].relative_path, "0000/RAM1500/smog.md")
+        self.assertEqual(stragglers, [])
