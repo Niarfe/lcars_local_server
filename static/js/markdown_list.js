@@ -2,7 +2,21 @@
   const MARKDOWN_LIBRARY_URL_KEY = "lcars-markdown-library-url";
   const filterInput = document.getElementById("markdown-filter");
   const rows = Array.from(document.querySelectorAll(".markdown-doc-row"));
+  const docList = document.getElementById("markdown-doc-list");
+  const fullPathsToggle = document.getElementById("markdown-full-paths");
+  const fullPathsKey = "lcars-markdown-full-paths";
+  const rowLabels = rows.map((row) => {
+    const title = row.querySelector(".markdown-doc-title");
+    const path = row.querySelector(".markdown-doc-path");
+    return { row, title, path, originalTitle: title.textContent };
+  });
+  const pathSortedRows = [...rows].sort((first, second) => {
+    const firstPath = first.dataset.path || "";
+    const secondPath = second.dataset.path || "";
+    return firstPath < secondPath ? -1 : firstPath > secondPath ? 1 : 0;
+  });
   const archiveButton = document.getElementById("archive-markdown-context");
+  const openFolderButton = document.getElementById("open-markdown-library-folder");
   const archiveModal = document.getElementById("archive-modal");
   const archiveSummary = document.getElementById("archive-summary");
   const archiveStatus = document.getElementById("archive-status");
@@ -14,12 +28,38 @@
   let searchMode = searchForm?.dataset.mode === "grep" ? "grep" : "names";
   const activeArchiveFolder = archiveButton?.dataset.folder || "";
 
+  function applyFullPaths() {
+    const enabled = Boolean(fullPathsToggle?.checked);
+    rowLabels.forEach(({ title, path, originalTitle }) => {
+      title.textContent = enabled ? path.textContent : originalTitle;
+      path.classList.toggle("hidden", enabled);
+    });
+    if (docList) {
+      const orderedRows = document.createDocumentFragment();
+      (enabled ? pathSortedRows : rows).forEach((row) => {
+        if (row.parentNode === docList) orderedRows.append(row);
+      });
+      docList.append(orderedRows);
+    }
+  }
+
+  if (fullPathsToggle) {
+    fullPathsToggle.checked = localStorage.getItem(fullPathsKey) === "1";
+    applyFullPaths();
+    fullPathsToggle.addEventListener("change", () => {
+      localStorage.setItem(fullPathsKey, fullPathsToggle.checked ? "1" : "0");
+      applyFullPaths();
+    });
+  }
+
   function rememberCurrentLibraryUrl() {
     if (window.location.pathname !== "/markdown") return;
     localStorage.setItem(
       MARKDOWN_LIBRARY_URL_KEY,
       `${window.location.pathname}${window.location.search}`
     );
+    localStorage.setItem(window.lcarsMarkdown.rootLibraryKey, `${window.location.pathname}${window.location.search}`);
+    sessionStorage.setItem(window.lcarsMarkdown.rootLibraryKey, `${window.location.pathname}${window.location.search}`);
   }
 
   function encodeDocPath(docId) {
@@ -105,7 +145,7 @@
     if (archiveStatus) archiveStatus.textContent = "LOADING ARCHIVE PREFLIGHT";
 
     try {
-      const response = await fetch(`/api/markdown/archive/preview/${encodeURIComponent(folder)}`);
+      const response = await fetch(window.lcarsMarkdown.url(`/api/markdown/archive/preview/${encodeURIComponent(folder)}`));
       const data = await response.json();
       if (!data.ok) {
         if (archiveStatus) archiveStatus.textContent = data.error || "ARCHIVE PREFLIGHT FAILED";
@@ -126,7 +166,7 @@
     if (archiveStatus) archiveStatus.textContent = "ARCHIVE IN PROGRESS";
 
     try {
-      const response = await fetch(`/api/markdown/archive/${encodeURIComponent(folder)}`, { method: "POST" });
+      const response = await fetch(window.lcarsMarkdown.url(`/api/markdown/archive/${encodeURIComponent(folder)}`), { method: "POST" });
       const data = await response.json();
       if (!data.ok) {
         if (archiveStatus) archiveStatus.textContent = data.error || "ARCHIVE FAILED";
@@ -153,7 +193,7 @@
     button.textContent = "RENAMING";
 
     try {
-      const response = await fetch(`/api/markdown/rename/${encodeDocPath(docId)}`, {
+      const response = await fetch(window.lcarsMarkdown.url(`/api/markdown/rename/${encodeDocPath(docId)}`), {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({ name: nextName.trim() })
@@ -173,14 +213,14 @@
   }
 
   async function deleteDoc(docId, docName, button) {
-    const ok = window.confirm(`Delete Markdown file "${docName}"? This cannot be undone.`);
+    const ok = window.confirm(`Delete Markdown file "${docName}"?\n${document.body.dataset.markdownRootPath}/${docId}\n\nThis cannot be undone.`);
     if (!ok) return;
 
     button.disabled = true;
     button.textContent = "DELETING";
 
     try {
-      const response = await fetch(`/api/markdown/delete/${encodeDocPath(docId)}`, { method: "POST" });
+      const response = await fetch(window.lcarsMarkdown.url(`/api/markdown/delete/${encodeDocPath(docId)}`), { method: "POST" });
       const data = await response.json();
       if (data.ok) {
         button.closest(".markdown-doc-row")?.remove();
@@ -232,6 +272,24 @@
 
   rememberCurrentLibraryUrl();
 
+  openFolderButton?.addEventListener("click", async () => {
+    openFolderButton.disabled = true;
+    openFolderButton.textContent = "OPENING";
+    try {
+      const response = await fetch(window.lcarsMarkdown.url("/api/markdown/open-folder"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ folder: openFolderButton.dataset.folder || "" })
+      });
+      const data = await response.json();
+      if (!data.ok) alert(data.error || "Could not open folder");
+    } catch (error) {
+      alert(error.message || "Could not open folder");
+    } finally {
+      openFolderButton.disabled = false;
+      openFolderButton.textContent = "FINDER";
+    }
+  });
 
   document.querySelectorAll(".rename-markdown").forEach((button) => {
     button.addEventListener("click", (event) => {

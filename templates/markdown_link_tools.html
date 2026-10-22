@@ -1,0 +1,26 @@
+<div class="markdown-link-status" id="markdown-link-status" role="status" aria-live="polite"></div>
+<dialog class="markdown-peek-dialog" id="markdown-peek-dialog" aria-labelledby="markdown-peek-title">
+  <div class="markdown-peek-header">
+    <div class="markdown-peek-heading">
+      <div class="eyebrow">DOCUMENT PEEK</div>
+      <h2 id="markdown-peek-title"></h2>
+      <div class="subtle markdown-peek-path" id="markdown-peek-path"></div>
+    </div>
+    <button class="mini" id="markdown-peek-close" type="button" autofocus>CLOSE</button>
+  </div>
+  <div class="markdown-peek-toolbar">
+    <div class="markdown-peek-navigation" aria-label="Browse document previews">
+      <button class="mini" id="markdown-peek-previous" type="button" aria-label="Previous document" title="Previous document (Left arrow)">&lt;&lt;</button>
+      <span id="markdown-peek-position" role="status" aria-live="polite"></span>
+      <button class="mini" id="markdown-peek-next" type="button" aria-label="Next document" title="Next document (Right arrow)">&gt;&gt;</button>
+    </div>
+    <div class="markdown-peek-actions">
+      <button class="mini" id="markdown-peek-copy" type="button" data-copy-markdown-link="">COPY LINK</button>
+      <a class="mini alt" id="markdown-peek-open">OPEN DOCUMENT</a>
+      <a class="mini alt" id="markdown-peek-edit">EDIT</a>
+    </div>
+  </div>
+  <div class="subtle markdown-peek-status" id="markdown-peek-status" role="status"></div>
+  <iframe id="markdown-peek-frame" class="markdown-peek-frame" title="Document preview" sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"></iframe>
+</dialog>
+<script src="{{ url_for('static', filename='js/markdown_links.js') }}"></script>

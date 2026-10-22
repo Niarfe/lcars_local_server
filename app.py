@@ -8,6 +8,7 @@ import re
 import shutil
 import sqlite3
 import subprocess
+from collections.abc import Iterator
 from datetime import datetime, timezone
 from html.parser import HTMLParser
 from html import escape
@@ -24,10 +25,11 @@ try:
     import boto3
 except ImportError:
     boto3 = None
-from flask import Flask, abort, jsonify, redirect, render_template, request, send_file, url_for
+from flask import Flask, abort, g, has_request_context, jsonify, redirect, render_template, request, send_file, url_for
 from jupyter_server.serverapp import list_running_servers
 
 from scripts import build_todo as todo_builder
+from scripts import markdown_mounts
 
 app = Flask(__name__)
 BASE_DIR = Path.home()
@@ -111,6 +113,7 @@ MARKDOWN_PAGE_BREAK_RE = re.compile(
     r"<!--\s*(?:pagebreak|page-break|page break)\s*-->)\s*$",
     re.IGNORECASE,
 )
+MARKDOWN_UNORDERED_LIST_LINE_RE = re.compile(r"^[ \t]{0,3}[-*+][ \t]+")
 
 
 def ensure_content_dirs() -> None:
@@ -659,27 +662,166 @@ def safe_local_pdf_path(book_id: str) -> Path:
     return first_candidate
 
 
+def current_markdown_root() -> dict[str, Any]:
+    if has_request_context() and hasattr(g, "markdown_root"):
+        return g.markdown_root
+    return {
+        "id": "markdown", "label": "markdown", "path": str(MARKDOWN_DIR.resolve()),
+        "display_path": markdown_mounts.portable_path(MARKDOWN_DIR.resolve()),
+        "primary": True, "available": MARKDOWN_DIR.is_dir(),
+    }
+
+
+def markdown_root_path() -> Path:
+    return Path(current_markdown_root()["path"])
+
+
+MARKDOWN_FILE_ARGUMENTS = {
+    "markdown_view": "doc_id",
+    "markdown_edit": "doc_id",
+    "markdown_peek": "doc_id",
+    "markdown_print_collate": "doc_id",
+    "markdown_asset": "asset_id",
+}
+
+
+def markdown_url_for(endpoint: str, **values: Any) -> str:
+    file_argument = MARKDOWN_FILE_ARGUMENTS.get(endpoint)
+    if file_argument and file_argument in values:
+        path = (markdown_root_path() / values.pop(file_argument)).resolve()
+        if not path.is_relative_to(markdown_root_path()):
+            raise ValueError("Invalid markdown path")
+        values.pop("root", None)
+        base = urlparse(url_for(endpoint, **values))
+        query = "path=" + quote(markdown_mounts.portable_path(path), safe="/~")
+        if base.query:
+            query += "&" + base.query
+        return base._replace(query=query).geturl()
+    root_id = current_markdown_root()["id"]
+    if root_id != "markdown":
+        values.setdefault("root", root_id)
+    return url_for(endpoint, **values)
+
+
+def markdown_location(raw_path: str, roots: list[dict]) -> tuple[dict, str]:
+    """Resolve a readable filesystem URL within the configured libraries."""
+    if not raw_path.startswith(("/", "~/")):
+        raise ValueError("Use an absolute path or ~/ path")
+    path = Path(os.path.abspath(Path(raw_path).expanduser()))
+    matches = [root for root in roots if path.is_relative_to(Path(root["path"]))]
+    if not matches:
+        # Accept OS aliases such as /tmp -> /private/tmp, within a known root.
+        path = path.resolve()
+        matches = [root for root in roots if path.is_relative_to(Path(root["path"]))]
+    if not matches:
+        raise ValueError("Document is outside the configured Markdown folders")
+    root = max(matches, key=lambda item: len(Path(item["path"]).parts))
+    resolved = path.resolve()
+    if not resolved.is_relative_to(Path(root["path"])):
+        raise ValueError("Document symlink leaves its Markdown folder")
+    return root, resolved.relative_to(Path(root["path"])).as_posix()
+
+
+@app.before_request
+def select_markdown_root() -> Any:
+    endpoint = request.endpoint or ""
+    if not endpoint.startswith(("markdown_", "api_markdown_")) or endpoint in {
+        "api_markdown_mounts", "api_markdown_mount", "api_markdown_unmount", "api_markdown_browse",
+    }:
+        return None
+    try:
+        g.markdown_roots = markdown_mounts.roots(CONTENT_CONFIG_PATH, MARKDOWN_DIR)
+    except (ValueError, OSError) as exc:
+        if request.path.startswith("/api/"):
+            return jsonify({"ok": False, "error": str(exc)}), 503
+        abort(503, description="Could not read Markdown mounts")
+    file_argument = MARKDOWN_FILE_ARGUMENTS.get(endpoint)
+    if file_argument and file_argument not in (request.view_args or {}):
+        try:
+            g.markdown_root, g.markdown_path_id = markdown_location(request.args.get("path", ""), g.markdown_roots)
+        except (ValueError, OSError, RuntimeError):
+            abort(404)
+    else:
+        root_id = request.args.get("root", "markdown")
+        g.markdown_root = next((root for root in g.markdown_roots if root["id"] == root_id), None)
+    if g.markdown_root is None:
+        if request.path.startswith("/api/"):
+            return jsonify({"ok": False, "error": "Mounted folder not found"}), 404
+        abort(404, description="Mounted folder not found")
+    if not g.markdown_root["primary"] and not g.markdown_root["available"] and endpoint != "markdown_page":
+        if request.path.startswith("/api/"):
+            return jsonify({"ok": False, "error": "Mounted folder is unavailable"}), 409
+        abort(404, description="Mounted folder is unavailable")
+    return None
+
+
+@app.context_processor
+def markdown_template_context() -> dict[str, Any]:
+    return {
+        "markdown_url_for": markdown_url_for,
+        "markdown_root": current_markdown_root(),
+        "markdown_roots": getattr(g, "markdown_roots", []),
+        "markdown_context_active": hasattr(g, "markdown_root"),
+    }
+
+
+def markdown_files_in_root(root: Path, *, use_gitignore: bool) -> Iterator[Path]:
+    listing = None
+    if use_gitignore:
+        try:
+            listing = subprocess.run(
+                ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", ":(icase)*.md"],
+                cwd=root,
+                capture_output=True,
+                timeout=15,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+
+    if listing is not None and listing.returncode == 0:
+        # Delegate ignore and index semantics to Git; rationale in CONTENT_ROOTS.md.
+        for relative in set(listing.stdout.split(b"\0")) - {b""}:
+            yield root / os.fsdecode(relative)
+        return
+
+    # Ordinary folders retain the lightweight scan when Git is unavailable.
+    for directory, folders, filenames in os.walk(root, followlinks=False):
+        folders[:] = [name for name in folders if name not in {".git", ".hg", ".svn", ".venv", "node_modules", "__pycache__"}]
+        for filename in filenames:
+            if Path(filename).suffix.lower() == ".md":
+                yield Path(directory) / filename
+
+
 def get_markdown_docs() -> list[dict[str, str]]:
-    MARKDOWN_DIR.mkdir(exist_ok=True)
+    root = markdown_root_path()
+    if current_markdown_root()["primary"]:
+        root.mkdir(parents=True, exist_ok=True)
     docs = []
-    for p in sorted(MARKDOWN_DIR.rglob("*.md"), key=lambda x: x.name.lower()):
-        rel = p.relative_to(MARKDOWN_DIR).as_posix()
-        title = p.stem.replace("_", " ").replace("-", " ").title()
+    for path in markdown_files_in_root(root, use_gitignore=not current_markdown_root()["primary"]):
+        if not path.is_file() or not path.resolve().is_relative_to(root):
+            continue
+        rel = path.relative_to(root).as_posix()
+        title = path.stem.replace("_", " ").replace("-", " ").title()
         docs.append({"id": rel, "name": title, "path": rel})
-    return docs
+    return sorted(docs, key=lambda doc: (Path(doc["id"]).name.casefold(), doc["id"].casefold()))
 
 def safe_markdown_path(doc_id: str) -> Path:
-    candidate = (MARKDOWN_DIR / doc_id).resolve()
-    if not str(candidate).startswith(str(MARKDOWN_DIR.resolve())):
+    root = markdown_root_path()
+    candidate = (root / doc_id).resolve()
+    if not candidate.is_relative_to(root):
         raise ValueError("Invalid markdown path")
     if candidate.suffix.lower() != ".md":
         raise ValueError("Only .md files are supported")
+    if candidate.exists() and not candidate.is_file():
+        raise ValueError("Markdown path is not a file")
     return candidate
 
 def safe_markdown_asset_path(asset_id: str) -> Path:
-    candidate = (MARKDOWN_DIR / asset_id).resolve()
+    root = markdown_root_path()
+    candidate = (root / asset_id).resolve()
     try:
-        candidate.relative_to(MARKDOWN_DIR.resolve())
+        candidate.relative_to(root)
     except ValueError as exc:
         raise ValueError("Invalid markdown asset path") from exc
     if candidate.suffix.lower() not in MARKDOWN_IMAGE_EXTENSIONS:
@@ -690,8 +832,9 @@ def safe_markdown_folder_path(folder_id: str) -> Path:
     folder_id = folder_id.strip("/")
     if not folder_id:
         raise ValueError("Invalid markdown folder")
-    candidate = (MARKDOWN_DIR / folder_id).resolve()
-    if not str(candidate).startswith(str(MARKDOWN_DIR.resolve())):
+    root = markdown_root_path()
+    candidate = (root / folder_id).resolve()
+    if not candidate.is_relative_to(root):
         raise ValueError("Invalid markdown folder")
     if not candidate.is_dir():
         raise ValueError("Markdown folder not found")
@@ -710,7 +853,7 @@ def normalize_doc_id(doc_id: str) -> str:
 
 
 def is_todo_output_doc(doc_id: str) -> bool:
-    return normalize_doc_id(doc_id) == TODO_DOC_ID
+    return current_markdown_root()["primary"] and normalize_doc_id(doc_id) == TODO_DOC_ID
 
 
 def current_request_base_url() -> str:
@@ -841,6 +984,8 @@ def checkpoint_paths(repo_root: Path, paths: list[str], message: str) -> str | N
     return rev.stdout.strip()
 
 def archive_preview(folder_id: str) -> dict[str, Any]:
+    if not current_markdown_root()["primary"]:
+        raise ValueError("Archive is available only in the primary Markdown library")
     folder, active_path = safe_markdown_top_folder(folder_id)
     archive_path = (ARCHIVE_DIR / folder).resolve()
     repo_root = git_root_for_content()
@@ -940,15 +1085,34 @@ def markdown_image_asset_url(src: str, doc_id: str) -> str:
         return src
 
     doc_folder = Path(doc_id).parent
-    asset_path = (MARKDOWN_DIR / doc_folder / unquote(parsed.path)).resolve()
+    root = markdown_root_path()
+    asset_path = (root / doc_folder / unquote(parsed.path)).resolve()
     try:
-        rel_asset = asset_path.relative_to(MARKDOWN_DIR.resolve()).as_posix()
+        rel_asset = asset_path.relative_to(root).as_posix()
     except ValueError:
         return src
 
-    rewritten = url_for("markdown_asset", asset_id=rel_asset)
+    rewritten = markdown_url_for("markdown_asset", asset_id=rel_asset)
     if parsed.query:
-        rewritten = f"{rewritten}?{parsed.query}"
+        rewritten = f"{rewritten}{'&' if '?' in rewritten else '?'}{parsed.query}"
+    if parsed.fragment:
+        rewritten = f"{rewritten}#{parsed.fragment}"
+    return rewritten
+
+
+def markdown_document_link_url(href: str, doc_id: str) -> str:
+    parsed = urlparse(href)
+    if href.startswith(("/", "#")) or parsed.scheme or parsed.netloc or not parsed.path:
+        return href
+    if Path(unquote(parsed.path)).suffix.lower() != ".md":
+        return href
+    root = markdown_root_path()
+    target = (root / Path(doc_id).parent / unquote(parsed.path)).resolve()
+    if not target.is_relative_to(root):
+        return href
+    rewritten = markdown_url_for("markdown_view", doc_id=target.relative_to(root).as_posix())
+    if parsed.query:
+        rewritten = f"{rewritten}{'&' if '?' in rewritten else '?'}{parsed.query}"
     if parsed.fragment:
         rewritten = f"{rewritten}#{parsed.fragment}"
     return rewritten
@@ -997,6 +1161,8 @@ class MarkdownImageAssetRewriter(HTMLParser):
         for name, value in attrs:
             if tag.lower() == "img" and name.lower() == "src" and value:
                 value = markdown_image_asset_url(value, self.doc_id)
+            elif tag.lower() == "a" and name.lower() == "href" and value:
+                value = markdown_document_link_url(value, self.doc_id)
             if value is None:
                 formatted.append(f" {name}")
             else:
@@ -1140,7 +1306,7 @@ def markdown_signature_page_order(page_count: int, sheet_count: int) -> list[int
 
 
 def render_markdown(text: str, doc_id: str | None = None) -> str:
-    normalized = normalize_markdown_task_lines(text)
+    normalized = normalize_markdown_list_boundaries(normalize_markdown_task_lines(text))
     semantic = render_semantic_markdown(normalized)
     with_page_breaks = render_markdown_page_breaks(semantic)
     with_diagrams = render_mermaid_fences(with_page_breaks)
@@ -1417,6 +1583,42 @@ def normalize_markdown_task_lines(text: str) -> str:
     return re.sub(r"(?m)^(\s*)\[(x|X| )\]\s+", r"\1- [\2] ", text)
 
 
+def normalize_markdown_list_boundaries(text: str) -> str:
+    """Let colon-led paragraphs introduce immediate unordered lists."""
+    lines = text.splitlines()
+    output: list[str] = []
+    in_fence = False
+    fence_char = ""
+    fence_len = 0
+
+    for line in lines:
+        fence_match = MARKDOWN_FENCE_LINE_RE.match(line)
+        if fence_match:
+            fence = fence_match.group(1)
+            if not in_fence:
+                in_fence = True
+                fence_char = fence[0]
+                fence_len = len(fence)
+            elif fence[0] == fence_char and len(fence) >= fence_len:
+                in_fence = False
+            output.append(line)
+            continue
+
+        if (
+            not in_fence
+            and output
+            and output[-1].strip().endswith(":")
+            and MARKDOWN_UNORDERED_LIST_LINE_RE.match(line)
+            and output[-1].strip()
+            and not MARKDOWN_UNORDERED_LIST_LINE_RE.match(output[-1])
+        ):
+            output.append("")
+
+        output.append(line)
+
+    return "\n".join(output)
+
+
 def markdown_slug_from_title(title: str) -> str:
     cleaned = title.strip().lower()
     cleaned = re.sub(r"[^a-z0-9]+", "_", cleaned)
@@ -1424,7 +1626,7 @@ def markdown_slug_from_title(title: str) -> str:
     return cleaned or "untitled"
 
 
-def unique_markdown_path_from_rel(raw_name: str) -> Path:
+def unique_markdown_path_from_rel(raw_name: str, folder_id: str = "") -> Path:
     """Create a safe unique Markdown path, allowing folder segments."""
     cleaned = raw_name.strip().replace("\\", "/")
     if cleaned.lower().endswith(".md"):
@@ -1436,12 +1638,14 @@ def unique_markdown_path_from_rel(raw_name: str) -> Path:
     folder_parts = [markdown_slug_from_title(part) for part in parts[:-1]]
     filename = markdown_slug_from_title(parts[-1]) + ".md"
 
-    base_dir = MARKDOWN_DIR.joinpath(*folder_parts).resolve() if folder_parts else MARKDOWN_DIR.resolve()
-    if not str(base_dir).startswith(str(MARKDOWN_DIR.resolve())):
+    root = markdown_root_path()
+    parent = safe_markdown_folder_path(folder_id) if folder_id else root
+    base_dir = parent.joinpath(*folder_parts).resolve()
+    if not base_dir.is_relative_to(root):
         raise ValueError("Invalid markdown path")
 
     base_dir.mkdir(parents=True, exist_ok=True)
-    candidate = base_dir / filename
+    candidate = safe_markdown_path((base_dir / filename).relative_to(root).as_posix())
 
     if not candidate.exists():
         return candidate
@@ -1450,6 +1654,7 @@ def unique_markdown_path_from_rel(raw_name: str) -> Path:
     suffix = candidate.suffix
     for idx in range(2, 1000):
         next_candidate = candidate.with_name(f"{stem}_{idx}{suffix}")
+        next_candidate = safe_markdown_path(next_candidate.relative_to(root).as_posix())
         if not next_candidate.exists():
             return next_candidate
 
@@ -1490,14 +1695,8 @@ def load_focus_config() -> dict[str, Any]:
 
 
 def get_markdown_folders() -> list[str]:
-    MARKDOWN_DIR.mkdir(exist_ok=True)
-    folders: set[str] = set()
-    for p in MARKDOWN_DIR.rglob("*.md"):
-        rel = p.relative_to(MARKDOWN_DIR).as_posix()
-        parts = rel.split("/")
-        if len(parts) > 1 and parts[0]:
-            folders.add(parts[0])
-    return sorted(folders, key=lambda x: x.lower())
+    folders = {doc["id"].split("/")[0] for doc in get_markdown_docs() if "/" in doc["id"]}
+    return sorted(folders, key=str.casefold)
 
 
 def get_markdown_scope(folder_id: str = "") -> dict[str, Any]:
@@ -1505,7 +1704,7 @@ def get_markdown_scope(folder_id: str = "") -> dict[str, Any]:
     current_folder = ""
     if requested_folder:
         folder_path = safe_markdown_folder_path(requested_folder)
-        current_folder = folder_path.relative_to(MARKDOWN_DIR.resolve()).as_posix()
+        current_folder = folder_path.relative_to(markdown_root_path()).as_posix()
 
     all_docs = get_markdown_docs()
     prefix = f"{current_folder}/" if current_folder else ""
@@ -1540,7 +1739,7 @@ def get_markdown_scope(folder_id: str = "") -> dict[str, Any]:
         "current_name": current_parts[-1] if current_parts else "ALL",
         "breadcrumbs": breadcrumbs,
         "children": children,
-        "archive_folder": current_folder if current_folder and len(current_parts) == 1 else "",
+        "archive_folder": current_folder if current_folder and len(current_parts) == 1 and current_markdown_root()["primary"] else "",
     }
 
 
@@ -2964,7 +3163,7 @@ def markdown_page() -> str:
     query = request.args.get("q", "").strip()[:200]
     search_mode = "grep" if request.args.get("mode", "").strip().lower() == "grep" else "names"
     try:
-        scope = get_markdown_scope(request.args.get("folder", ""))
+        scope = get_markdown_scope(request.args.get("folder", "") if current_markdown_root()["available"] else "")
     except ValueError:
         abort(404)
     if search_mode == "grep" and query:
@@ -2979,7 +3178,7 @@ def markdown_page() -> str:
         params = dict(navigation_params)
         if folder["path"]:
             params["folder"] = folder["path"]
-        folder["url"] = url_for("markdown_page", **params)
+        folder["url"] = markdown_url_for("markdown_page", **params)
 
     return render_template(
         "markdown_list.html",
@@ -3288,8 +3487,11 @@ def youtube_source(source_id: int) -> str:
     return render_template("youtube_source.html", source=source, notice=notice)
 
 
+@app.get("/md/view")
 @app.get("/md/view/<path:doc_id>")
-def markdown_view(doc_id: str) -> Any:
+def markdown_view(doc_id: str | None = None) -> Any:
+    if doc_id is None:
+        doc_id = g.markdown_path_id
     try:
         doc_path = safe_markdown_path(doc_id)
     except ValueError:
@@ -3297,8 +3499,8 @@ def markdown_view(doc_id: str) -> Any:
             folder_path = safe_markdown_folder_path(doc_id)
         except ValueError:
             abort(404)
-        folder = folder_path.relative_to(MARKDOWN_DIR).as_posix()
-        return redirect(url_for("markdown_page", folder=f"{folder}/"))
+        folder = folder_path.relative_to(markdown_root_path()).as_posix()
+        return redirect(markdown_url_for("markdown_page", folder=f"{folder}/"))
     if not doc_path.exists():
         abort(404)
     text = doc_path.read_text(encoding="utf-8", errors="replace")
@@ -3309,14 +3511,37 @@ def markdown_view(doc_id: str) -> Any:
         doc_name=doc_path.stem.replace("_", " ").replace("-", " ").title(),
         rendered=render_markdown(text, doc_id),
         source_text=text,
-        file_path=doc_path.relative_to(MARKDOWN_DIR).as_posix(),
+        file_path=doc_path.relative_to(markdown_root_path()).as_posix(),
         has_page_breaks=has_page_breaks,
         can_refresh_todo=is_todo_output_doc(doc_id),
+        back_url=markdown_url_for("markdown_page", folder=Path(doc_id).parent.as_posix())
+        if Path(doc_id).parent != Path(".") else markdown_url_for("markdown_page"),
     )
 
 
+@app.get("/md/peek")
+@app.get("/md/peek/<path:doc_id>")
+def markdown_peek(doc_id: str | None = None) -> Any:
+    if doc_id is None:
+        doc_id = g.markdown_path_id
+    try:
+        doc_path = safe_markdown_path(doc_id)
+        text = doc_path.read_text(encoding="utf-8", errors="replace")
+    except (ValueError, OSError):
+        abort(404)
+    theme = request.args.get("theme", "paper")
+    if theme not in {"white", "paper", "dark"}:
+        theme = "paper"
+    return render_template(
+        "markdown_peek.html", rendered=render_markdown(text, doc_id), theme=theme, doc_id=doc_id,
+    ), {"Cache-Control": "no-store"}
+
+
+@app.get("/md/asset")
 @app.get("/md/asset/<path:asset_id>")
-def markdown_asset(asset_id: str) -> Any:
+def markdown_asset(asset_id: str | None = None) -> Any:
+    if asset_id is None:
+        asset_id = g.markdown_path_id
     try:
         asset_path = safe_markdown_asset_path(asset_id)
     except ValueError:
@@ -3330,8 +3555,11 @@ def markdown_asset(asset_id: str) -> Any:
     )
 
 
+@app.get("/md/print-collate/<int:sheet_count>")
 @app.get("/md/print-collate/<int:sheet_count>/<path:doc_id>")
-def markdown_print_collate(sheet_count: int, doc_id: str) -> Any:
+def markdown_print_collate(sheet_count: int, doc_id: str | None = None) -> Any:
+    if doc_id is None:
+        doc_id = g.markdown_path_id
     if sheet_count not in {1, 2, 3, 4}:
         abort(404)
     try:
@@ -3381,7 +3609,7 @@ def markdown_print_collate(sheet_count: int, doc_id: str) -> Any:
     return render_template(
         "markdown_collate.html",
         doc_name=doc_path.stem.replace("_", " ").replace("-", " ").title(),
-        file_path=doc_path.relative_to(MARKDOWN_DIR).as_posix(),
+        file_path=doc_path.relative_to(markdown_root_path()).as_posix(),
         sheet_count=sheet_count,
         logical_page_count=len(source_pages),
         padded_page_count=len(page_order),
@@ -3393,8 +3621,11 @@ def markdown_print_collate(sheet_count: int, doc_id: str) -> Any:
     )
 
 
+@app.get("/md/edit")
 @app.get("/md/edit/<path:doc_id>")
-def markdown_edit(doc_id: str) -> str:
+def markdown_edit(doc_id: str | None = None) -> str:
+    if doc_id is None:
+        doc_id = g.markdown_path_id
     try:
         doc_path = safe_markdown_path(doc_id)
     except ValueError:
@@ -3407,7 +3638,7 @@ def markdown_edit(doc_id: str) -> str:
         doc_id=doc_id,
         doc_name=doc_path.stem.replace("_", " ").replace("-", " ").title(),
         source_text=text,
-        file_path=doc_path.relative_to(MARKDOWN_DIR).as_posix(),
+        file_path=doc_path.relative_to(markdown_root_path()).as_posix(),
     )
 
 
@@ -3435,21 +3666,24 @@ def api_markdown_create() -> Any:
     if not isinstance(folder, str):
         folder = ""
 
-    raw_title = title.strip()
-    if folder.strip() and "/" not in raw_title:
-        raw_path = f"{folder.strip().strip('/')}/{raw_title}"
-    else:
-        raw_path = raw_title
-
-    MARKDOWN_DIR.mkdir(exist_ok=True)
-    path = unique_markdown_path_from_rel(raw_path)
+    root = markdown_root_path()
+    if current_markdown_root()["primary"]:
+        root.mkdir(parents=True, exist_ok=True)
+    try:
+        path = unique_markdown_path_from_rel(title.strip(), folder.strip())
+    except (ValueError, OSError) as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
     heading = title.strip().split("/")[-1].strip()
-    path.write_text(f"# {heading}\n\n", encoding="utf-8")
+    try:
+        path.write_text(f"# {heading}\n\n", encoding="utf-8")
+    except OSError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
 
     return jsonify({
         "ok": True,
-        "id": path.relative_to(MARKDOWN_DIR).as_posix(),
+        "id": path.relative_to(root).as_posix(),
         "name": path.stem.replace("_", " ").replace("-", " ").title(),
+        "url": markdown_url_for("markdown_edit", doc_id=path.relative_to(root).as_posix()),
     })
 
 
@@ -3480,7 +3714,10 @@ def api_markdown_delete(doc_id: str) -> Any:
         return jsonify({"ok": False, "error": "Invalid markdown path"}), 404
     if not path.exists():
         return jsonify({"ok": False, "error": "Document not found"}), 404
-    path.unlink()
+    try:
+        path.unlink()
+    except OSError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
     return jsonify({"ok": True})
 
 @app.get("/api/markdown/archive/preview/<folder_id>")
@@ -3551,14 +3788,40 @@ def api_markdown_rename(doc_id: str) -> Any:
     if new_path.exists() and new_path != old_path:
         return jsonify({"ok": False, "error": "A document with that name already exists"}), 400
 
-    old_path.rename(new_path)
-    new_id = new_path.relative_to(MARKDOWN_DIR).as_posix()
+    try:
+        old_path.rename(new_path)
+    except OSError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    new_id = new_path.relative_to(markdown_root_path()).as_posix()
 
     return jsonify({
         "ok": True,
         "id": new_id,
-        "url": url_for("markdown_view", doc_id=new_id),
+        "url": markdown_url_for("markdown_view", doc_id=new_id),
     })
+
+
+def open_markdown_directory(folder: Path) -> Any:
+    if not folder.exists() or not folder.is_dir():
+        return jsonify({"ok": False, "error": "Folder not found"}), 404
+    try:
+        open_local_file(folder)
+    except RuntimeError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 503
+    return jsonify({"ok": True, "path": folder.relative_to(markdown_root_path()).as_posix()})
+
+
+@app.post("/api/markdown/open-folder")
+def api_markdown_open_library_folder() -> Any:
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict) or not isinstance(payload.get("folder", ""), str):
+        return jsonify({"ok": False, "error": "Invalid folder"}), 400
+    folder_id = payload.get("folder", "")
+    try:
+        folder = safe_markdown_folder_path(folder_id) if folder_id else markdown_root_path()
+    except ValueError:
+        return jsonify({"ok": False, "error": "Folder not found"}), 404
+    return open_markdown_directory(folder)
 
 
 @app.post("/api/markdown/open-folder/<path:doc_id>")
@@ -3571,19 +3834,7 @@ def api_markdown_open_folder(doc_id: str) -> Any:
     if not path.exists():
         return jsonify({"ok": False, "error": "Document not found"}), 404
 
-    folder = path.parent
-    if not folder.exists() or not folder.is_dir():
-        return jsonify({"ok": False, "error": "Folder not found"}), 404
-
-    try:
-        open_local_file(folder)
-    except RuntimeError as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 503
-
-    return jsonify({
-        "ok": True,
-        "path": folder.relative_to(MARKDOWN_DIR).as_posix(),
-    })
+    return open_markdown_directory(path.parent)
 
 
 
@@ -3730,6 +3981,46 @@ def api_book(book_id: str) -> Any:
 def api_markdown_docs() -> Any:
     return jsonify({"ok": True, "docs": get_markdown_docs()})
 
+
+@app.get("/api/markdown/mounts")
+def api_markdown_mounts() -> Any:
+    try:
+        roots = markdown_mounts.roots(CONTENT_CONFIG_PATH, MARKDOWN_DIR)
+    except (ValueError, OSError) as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 503
+    return jsonify({"ok": True, "roots": roots})
+
+
+@app.get("/api/markdown/mounts/browse")
+def api_markdown_browse() -> Any:
+    try:
+        listing = markdown_mounts.browse(request.args.get("path", ""), request.args.get("hidden") == "1")
+    except (ValueError, OSError) as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    return jsonify({"ok": True, **listing})
+
+
+@app.post("/api/markdown/mounts")
+def api_markdown_mount() -> Any:
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return jsonify({"ok": False, "error": "Invalid payload"}), 400
+    try:
+        root = markdown_mounts.mount(CONTENT_CONFIG_PATH, MARKDOWN_DIR, payload.get("path", ""), payload.get("label", ""))
+    except (ValueError, OSError) as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    return jsonify({"ok": True, "root": root, "url": url_for("markdown_page", root=root["id"])}), 201
+
+
+@app.post("/api/markdown/mounts/<root_id>/unmount")
+def api_markdown_unmount(root_id: str) -> Any:
+    try:
+        markdown_mounts.unmount(CONTENT_CONFIG_PATH, root_id)
+    except (ValueError, OSError) as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    return jsonify({"ok": True, "url": url_for("markdown_page")})
+
+
 @app.get("/api/markdown/<path:doc_id>")
 def api_markdown_doc(doc_id: str) -> Any:
     try:
@@ -3745,7 +4036,7 @@ def api_markdown_doc(doc_id: str) -> Any:
         "ok": True,
         "id": doc_id,
         "name": path.stem.replace("_", " ").replace("-", " ").title(),
-        "path": path.relative_to(MARKDOWN_DIR).as_posix(),
+        "path": path.relative_to(markdown_root_path()).as_posix(),
         "text": text,
         "rendered": render_markdown(text, doc_id),
         "mtime": path.stat().st_mtime,
@@ -3763,8 +4054,11 @@ def api_markdown_save(doc_id: str) -> Any:
     if not isinstance(text, str):
         return jsonify({"ok": False, "error": "Invalid payload"}), 400
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+    except OSError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
     return jsonify({"ok": True, "mtime": path.stat().st_mtime})
 
 

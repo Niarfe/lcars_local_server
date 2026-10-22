@@ -1,0 +1,34 @@
+<nav class="markdown-sidebar-nav" aria-label="Markdown folders">
+  <div class="markdown-sidebar-title">MOUNTS</div>
+  <div class="markdown-sidebar-links">
+    {% for root in markdown_roots %}
+    <div class="markdown-root-row">
+      <a class="markdown-sidebar-folder{% if root.id == markdown_root.id %} current{% endif %}" href="{{ url_for('markdown_page', root=root.id) if not root.primary else url_for('markdown_page') }}" title="{{ root.display_path }}"{% if root.id == markdown_root.id %} aria-current="location"{% endif %}>
+        <span>{{ root.label }}</span>{% if not root.available %}<span class="markdown-root-offline">OFFLINE</span>{% endif %}
+      </a>
+      {% if not root.primary %}
+      <button class="markdown-unmount-button" type="button" data-unmount-root="{{ root.id }}" data-root-label="{{ root.label }}" data-root-path="{{ root.display_path }}" title="Unmount Folder: {{ root.label }}" aria-label="Unmount Folder: {{ root.label }}">&#x23CF;</button>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  <button class="mini blue markdown-mount-button" id="mount-markdown-folder" type="button">MOUNT FOLDER</button>
+  {% if breadcrumbs is defined %}
+  <div class="markdown-sidebar-title">FOLDERS</div>
+  <div class="markdown-sidebar-links">
+    {% for folder in breadcrumbs %}
+    <a class="markdown-sidebar-folder markdown-folder-crumb{% if loop.last %} current{% else %} ancestor{% endif %}" data-folder-link="{{ folder.path }}" href="{{ folder.url }}"{% if loop.last %} aria-current="page"{% endif %}>
+      <span class="markdown-folder-depth" aria-hidden="true">{{ ">" * loop.index0 }}</span>
+      <span>{{ folder.name|upper }}</span>
+    </a>
+    {% endfor %}
+    {% for folder in children %}
+    <a class="markdown-sidebar-folder markdown-folder-child" data-folder-link="{{ folder.path }}" href="{{ folder.url }}">
+      <span class="markdown-folder-depth" aria-hidden="true">{{ ">" * (breadcrumbs|length) }}</span>
+      <span>{{ folder.name|upper }}</span>
+    </a>
+    {% endfor %}
+    {% if not children and not current_folder %}<div class="markdown-sidebar-empty">NO SUBFOLDERS</div>{% endif %}
+  </div>
+  {% endif %}
+</nav>

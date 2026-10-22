@@ -1,0 +1,24 @@
+<dialog class="markdown-mount-dialog" id="markdown-mount-dialog" aria-labelledby="markdown-mount-title">
+  <div class="panel-header">
+    <span id="markdown-mount-title">MOUNT FOLDER</span>
+    <button class="mini" id="markdown-mount-cancel" type="button">CANCEL</button>
+  </div>
+  <form class="markdown-mount-path-form" id="markdown-mount-path-form">
+    <button class="mini alt" id="markdown-mount-home" type="button">HOME</button>
+    <button class="mini" id="markdown-mount-up" type="button" title="Parent folder" aria-label="Parent folder">&#x2191;</button>
+    <label class="sr-only" for="markdown-mount-path">Folder path</label>
+    <input id="markdown-mount-path" type="text" autocomplete="off" spellcheck="false" />
+    <button class="mini" type="submit">GO</button>
+  </form>
+  <div class="markdown-mount-options">
+    <label><input id="markdown-mount-hidden" type="checkbox" /> SHOW HIDDEN FOLDERS</label>
+  </div>
+  <div class="markdown-mount-folders" id="markdown-mount-folders" aria-label="Folders" aria-busy="false"></div>
+  <div class="markdown-mount-selection" id="markdown-mount-selection"></div>
+  <label class="markdown-mount-label" for="markdown-mount-label">NAME</label>
+  <input class="markdown-mount-name" id="markdown-mount-label" type="text" maxlength="100" autocomplete="off" />
+  <div class="markdown-mount-status subtle" id="markdown-mount-status" role="status" aria-live="polite"></div>
+  <div class="archive-actions">
+    <button class="mini blue" id="markdown-mount-confirm" type="button" disabled>MOUNT FOLDER</button>
+  </div>
+</dialog>

@@ -19,14 +19,14 @@
     saveButton.disabled = true;
     saveButton.textContent = "SAVING";
     try {
-      const response = await fetch(`/api/markdown/save/${encodeDocPath(docId)}`, {
+      const response = await fetch(window.lcarsMarkdown.url(`/api/markdown/save/${encodeDocPath(docId)}`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: editor.value })
       });
       const data = await response.json();
       if (data.ok) {
-        window.location.href = `/md/view/${encodeDocPath(docId)}`;
+        window.location.href = document.getElementById("markdown-view-link").href;
       } else {
         alert(data.error || "Save failed");
       }
@@ -45,7 +45,7 @@
     button.textContent = "OPENING";
 
     try {
-      const response = await fetch(`/api/markdown/open-folder/${encodeDocPath(currentDocId)}`, {
+      const response = await fetch(window.lcarsMarkdown.url(`/api/markdown/open-folder/${encodeDocPath(currentDocId)}`), {
         method: "POST"
       });
       const data = await response.json();

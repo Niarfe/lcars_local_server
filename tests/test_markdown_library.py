@@ -119,7 +119,7 @@ class MarkdownLibraryTests(TestCase):
             self.assertTrue(renamed.exists())
             self.assertEqual(
                 response.get_json()["url"],
-                "/md/view/yt_transcripts/channel_one/new_name.md",
+                f"/md/view?path={renamed}",
             )
 
     def test_open_folder_endpoint_opens_containing_markdown_folder(self) -> None:

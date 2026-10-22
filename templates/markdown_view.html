@@ -1,18 +1,21 @@
 {% extends "base.html" %}
 {% block title %}Markdown Viewer{% endblock %}
 {% block main_class %}reader-main{% endblock %}
+{% block sidebar_extra %}{% include "markdown_sidebar.html" %}{% endblock %}
 {% block content %}
 <header class="hero markdown-sticky-header">
-  <div>
-    <div class="eyebrow">MARKDOWN VIEW</div>
+  <div class="markdown-root-heading">
+    <div class="eyebrow">MARKDOWN VIEW / {{ markdown_root.label }}</div>
     <h1>{{ doc_name }}</h1>
   </div>
   <div class="hero-badges">
-    <a class="badge alt linklike" href="{{ url_for('markdown_edit', doc_id=doc_id) }}">EDIT</a>
+    <a class="badge linklike" id="markdown-back" href="{{ back_url }}" title="Back to your document list">BACK</a>
+    <a class="badge alt linklike" href="{{ markdown_url_for('markdown_edit', doc_id=doc_id) }}">EDIT</a>
     <button class="badge alt" id="open-markdown-folder" data-doc-id="{{ doc_id }}" type="button">FINDER</button>
     <div class="dropdown actions-dropdown">
       <button class="badge blue dropdown-toggle actions-toggle" type="button">ACTIONS</button>
       <div class="dropdown-menu actions-menu">
+        <button class="dropdown-item" type="button" data-copy-markdown-link="{{ markdown_url_for('markdown_view', doc_id=doc_id) }}" data-doc-name="{{ doc_name }}">COPY LINK</button>
         <div class="submenu">
           <button class="dropdown-item submenu-toggle" type="button">THEME</button>
           <div class="submenu-menu">
@@ -47,8 +50,8 @@
             <a
               class="dropdown-item"
               data-print-collate
-              data-collate-url="{{ url_for('markdown_print_collate', sheet_count=sheet_count, doc_id=doc_id) }}"
-              href="{{ url_for('markdown_print_collate', sheet_count=sheet_count, doc_id=doc_id) }}"
+              data-collate-url="{{ markdown_url_for('markdown_print_collate', sheet_count=sheet_count, doc_id=doc_id) }}"
+              href="{{ markdown_url_for('markdown_print_collate', sheet_count=sheet_count, doc_id=doc_id) }}"
               target="_blank"
             >{{ sheet_count }} SHEET{% if sheet_count != 1 %}S{% endif %}</a>
             {% endfor %}
@@ -59,16 +62,17 @@
         <button class="dropdown-item" id="delete-markdown-current" data-doc-id="{{ doc_id }}" data-doc-name="{{ doc_name }}" type="button">DELETE</button>
       </div>
     </div>
-    <a class="badge gold linklike" data-markdown-library-link href="{{ url_for('markdown_page') }}">LIBRARY</a>
+    <a class="badge gold linklike" data-markdown-library-link href="{{ markdown_url_for('markdown_page') }}">LIBRARY</a>
   </div>
 </header>
 
 <section class="reader-panel">
   <article class="markdown-surface markdown-theme-white" id="markdown-surface">
-    <div class="markdown-meta">{{ file_path }}</div>
+    <div class="markdown-meta markdown-root-path">{{ markdown_root.display_path }}/{{ file_path }}</div>
     <div class="markdown-body" id="markdown-body">{{ rendered|safe }}</div>
   </article>
 </section>
+{% include "markdown_link_tools.html" %}
 <script src="{{ url_for('static', filename='vendor/mermaid/mermaid.min.js') }}"></script>
 <script src="{{ url_for('static', filename='js/markdown_view.js') }}"></script>
 {% endblock %}

@@ -42,6 +42,10 @@ The goal is to add capabilities without locking your content into a proprietary 
 - Rename / delete
 - Print support
 - Semantic Markdown rendering
+- Each document row has compact gray **P** (Peek), **L** (Copy Link), and **A** (Actions) buttons. **A** contains **RENAME** and **DELETE**; clicking the document name opens the viewer.
+- **BACK** in the document viewer returns to the current tab's last folder listing and search, including after editing. Directly opened documents fall back to their containing folder. **FINDER** in the library header opens the folder currently being browsed, including an empty folder or a mount's **ALL** view.
+- Copy Markdown links with **L** in the document library or **ACTIONS → COPY LINK** in the viewer, then paste them into another document. Links show the file's location, for example `[Readme](/md/view?path=~/Documents/academy/README.md)`. Paths under your home directory use `~/`; files elsewhere use their absolute path. The hostname and port are omitted, so links keep working inside LCARS if either changes. Links can cross mounted folders and survive unmounting and remounting the same folder. Older `/md/view/...?root=...` links remain supported.
+- Peek at documents with **P** in the library or the small **PEEK** button beside a document link in the viewer. Use **<< / >>** or the **left/right arrow keys** to browse while the preview stays open. The counter shows your position in the current filtered and sorted list; when peeking from a document, it follows that page's visible document links. **OPEN DOCUMENT**, **EDIT**, and **COPY LINK** apply to the document currently shown. The scrollable preview shows saved content, including tables and images. Close it with **CLOSE**, Escape, or a click outside. Peeking supports `.md` documents in the primary library and mounted folders.
 
 Current semantic blocks include:
 
@@ -175,6 +179,10 @@ For example:
 ```
 
 This allows your notes and books to live in their own Git repository while LCARS itself can be upgraded independently.
+
+Markdown also supports additional folders through **MOUNT FOLDER** in its sidebar. Each mounted folder has its own **ALL** view and searches; editing happens in the original folder. Mounted Git repositories honor `.gitignore` and other Git exclusions for untracked Markdown, keeping ignored environments and generated files out of the library. **Unmount Folder** removes the mount without deleting files. Mounts persist in `content_config.json`, and `~/...` paths work regardless of where LCARS is installed. See [External Content Roots](CONTENT_ROOTS.md) for configuration and the current archive/TODO scope.
+
+The [Git ignore design decision](CONTENT_ROOTS.md#git-ignore-design-decision) records why LCARS delegates repository discovery to Git, prefers granular mounts, and keeps local document browsing separate from publishing.
 
 ---
 

@@ -1,5 +1,52 @@
 {
   "markdown_dir": "/Users/praedator/Documents/COMICS/repos/vibes/lcars_data/markdown/",
-  "books_dir":    "/Users/praedator/Documents/COMICS/repos/vibes/lcars_data/books/",
-  "sounds_dir": "./static/sounds/"
+  "books_dir": "/Users/praedator/Documents/COMICS/repos/vibes/lcars_data/books/",
+  "sounds_dir": "./static/sounds/",
+  "markdown_mounts": [
+    {
+      "id": "f32a4e1d8de44b5db4251422400d5ca8",
+      "label": "ai-job-search",
+      "path": "~/Documents/COMICS/repos/ai-job-search"
+    },
+    {
+      "id": "ba6bffbd99764f959373c8777c5f4b69",
+      "label": "chatgpt_funes",
+      "path": "~/Documents/COMICS/repos/chatgpt_funes"
+    },
+    {
+      "id": "ff1539b049504f2bb1c6bc1b5422261e",
+      "label": "adi_chats",
+      "path": "~/Documents/COMICS/repos/00_ungitted/adi_chats"
+    },
+    {
+      "id": "25fa6b38b0b44151a7c2dc487acfc38a",
+      "label": "academy",
+      "path": "~/Documents/COMICS/repos/academy"
+    },
+    {
+      "id": "6e458a142baf4596beedb5d36bc88ba7",
+      "label": "background_removal",
+      "path": "~/Documents/COMICS/repos/00_ungitted/background_removal"
+    },
+    {
+      "id": "da32537cf0324f92bfbc0e6bab618df3",
+      "label": "stereo_layers",
+      "path": "~/Documents/COMICS/repos/00_ungitted/stereo_layers"
+    },
+    {
+      "id": "55da5b5d99c9460d9a6dffded32aa547",
+      "label": "stereo_vision",
+      "path": "~/Documents/COMICS/repos/00_ungitted/stereo_vision"
+    },
+    {
+      "id": "1278665077de45d9917140a92a84e34d",
+      "label": "lcars_local_server",
+      "path": "~/Documents/COMICS/repos/vibes/lcars_local_server"
+    },
+    {
+      "id": "00feed90bf3b419db365365c3ad71d03",
+      "label": "stereo_server",
+      "path": "~/Documents/COMICS/repos/00_ungitted/stereo_server"
+    }
+  ]
 }

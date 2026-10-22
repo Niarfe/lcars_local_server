@@ -26,9 +26,10 @@ class MarkdownViewTests(TestCase):
 
         page = page_response.get_data(as_text=True)
         self.assertEqual(page_response.status_code, 200)
-        self.assertIn('src="/md/asset/hobbies/draw/fem-form.jpg"', page)
+        self.assertIn(f'src="/md/asset?path={image}"', page)
         self.assertEqual(image_response.status_code, 200)
         self.assertEqual(image_response.get_data(), b"fake jpg")
+        image_response.close()
 
     def test_view_uses_sticky_action_header(self) -> None:
         with TemporaryDirectory() as temp_dir:
@@ -46,6 +47,7 @@ class MarkdownViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn('class="hero markdown-sticky-header"', page)
         self.assertIn(">EDIT</a>", page)
+        self.assertIn('id="markdown-back" href="/markdown?folder=jobskills"', page)
         self.assertIn('id="open-markdown-folder"', page)
         self.assertIn(">ACTIONS</button>", page)
         self.assertIn('data-md-font-family="serif"', page)
@@ -125,6 +127,33 @@ class MarkdownViewTests(TestCase):
         )
         self.assertIn("<h1", html)
         self.assertNotIn("<!-- pagebreak -->", html)
+
+    def test_colon_paragraph_can_introduce_immediate_unordered_list(self) -> None:
+        for marker in ("-", "*"):
+            with self.subTest(marker=marker):
+                html = app_module.render_markdown(
+                    "Some long line of text without any pound signs that ends in a colon:\n"
+                    f"{marker} followed immediately by a bullet\n"
+                    f"{marker} and then another"
+                )
+
+                self.assertIn(
+                    "<p>Some long line of text without any pound signs that ends in a colon:</p>",
+                    html,
+                )
+                self.assertIn("<ul>", html)
+                self.assertIn("<li>followed immediately by a bullet</li>", html)
+                self.assertIn("<li>and then another</li>", html)
+
+    def test_colon_list_boundary_normalization_skips_fenced_code(self) -> None:
+        transformed = app_module.normalize_markdown_list_boundaries(
+            "```markdown\n"
+            "Some long line of text without any pound signs that ends in a colon:\n"
+            "- this should stay inside the code fence\n"
+            "```"
+        )
+
+        self.assertNotIn("colon:\n\n- this should stay inside", transformed)
 
     def test_markdown_page_break_marker_skips_fenced_code(self) -> None:
         transformed = app_module.render_markdown_page_breaks(

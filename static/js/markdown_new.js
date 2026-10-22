@@ -26,10 +26,10 @@
   const folder = (params.get("folder") || "").replace(/^\/+|\/+$/g, "");
 
   if (folder) {
-    if (contextEl) contextEl.textContent = `NEW DOCUMENT WILL BE CREATED IN: ${folder}/`;
-    titleInput.placeholder = `${folder}/new document`;
+    if (contextEl) contextEl.textContent = `${document.body.dataset.markdownRootPath}/${folder}/`;
+    titleInput.placeholder = "New document";
   } else if (contextEl) {
-    contextEl.textContent = "";
+    contextEl.textContent = document.body.dataset.markdownRootPath;
   }
 
   async function createMarkdown() {
@@ -46,7 +46,7 @@
     createButton.textContent = "CREATING";
 
     try {
-      const response = await fetch("/api/markdown/create", {
+      const response = await fetch(window.lcarsMarkdown.url("/api/markdown/create"), {
         method: "POST",
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({ title, folder })
@@ -59,7 +59,7 @@
         return;
       }
 
-      window.location.href = `/md/edit/${encodeDocPath(data.id)}`;
+      window.location.href = data.url || window.lcarsMarkdown.url(`/md/edit/${encodeDocPath(data.id)}`);
     } catch (error) {
       if (errorEl) errorEl.textContent = error.message || "CREATE FAILED";
     } finally {

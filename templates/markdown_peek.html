@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Document preview</title>
+    <base target="_blank" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/lcars.css') }}" />
+  </head>
+  <body class="markdown-peek-page markdown-theme-{{ theme }}">
+    <article class="markdown-surface markdown-theme-{{ theme }} markdown-peek-document" data-document-url="{{ markdown_url_for('markdown_view', doc_id=doc_id) }}">
+      <div class="markdown-body">{{ rendered|safe }}</div>
+    </article>
+  </body>
+</html>

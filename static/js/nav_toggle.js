@@ -3,12 +3,33 @@
   const shell = document.querySelector(".shell");
   const nav = document.querySelector(".nav");
   const toggle = document.getElementById("sidebar-toggle");
+  const hoverMedia = window.matchMedia("(hover: hover) and (pointer: fine)");
+
+  function updateToggle() {
+    if (!shell || !toggle) return;
+    const collapsed = shell.classList.contains("nav-collapsed");
+    const peeking = shell.classList.contains("nav-peeking");
+    const label = collapsed
+      ? (peeking ? "Keep sidebar open" : "Expand sidebar")
+      : "Minimize sidebar";
+    toggle.textContent = collapsed ? "NAV" : "SIDE";
+    toggle.setAttribute("aria-label", label);
+    toggle.setAttribute("title", label);
+    toggle.setAttribute("aria-expanded", String(!collapsed || peeking));
+  }
+
+  function applyPeek(peeking) {
+    if (!shell) return;
+    shell.classList.toggle("nav-peeking", peeking && shell.classList.contains("nav-collapsed"));
+    updateToggle();
+  }
 
   function applyCollapsed(collapsed) {
     if (!shell || !nav) return;
     shell.classList.toggle("nav-collapsed", collapsed);
+    shell.classList.remove("nav-peeking");
     localStorage.setItem("lcars-nav-collapsed", collapsed ? "1" : "0");
-    if (toggle) toggle.textContent = collapsed ? "NAV" : "SIDE";
+    updateToggle();
   }
 
   function applyScale(scale) {
@@ -19,7 +40,7 @@
   applyCollapsed(localStorage.getItem("lcars-nav-collapsed") === "1");
   applyScale(localStorage.getItem("lcars-ui-scale") || "1");
 
-  const savedMarkdownUrl = localStorage.getItem(MARKDOWN_LIBRARY_URL_KEY);
+  const savedMarkdownUrl = window.lcarsMarkdown.libraryUrl();
   if (savedMarkdownUrl) {
     try {
       const url = new URL(savedMarkdownUrl, window.location.origin);
@@ -33,9 +54,33 @@
     }
   }
 
-  if (toggle) {
+  if (toggle && shell) {
     toggle.addEventListener("click", () => {
       applyCollapsed(!shell.classList.contains("nav-collapsed"));
+    });
+  }
+
+  if (nav) {
+    nav.addEventListener("pointerenter", (event) => {
+      if (hoverMedia.matches && event.pointerType !== "touch") applyPeek(true);
+    });
+    nav.addEventListener("pointerleave", () => {
+      const focused = document.activeElement;
+      applyPeek(nav.contains(focused) && focused.matches(":focus-visible"));
+    });
+    nav.addEventListener("focusin", (event) => {
+      if (event.target.matches(":focus-visible")) applyPeek(true);
+    });
+    nav.addEventListener("focusout", (event) => {
+      if (!nav.contains(event.relatedTarget)) {
+        applyPeek(hoverMedia.matches && nav.matches(":hover"));
+      }
+    });
+    nav.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && shell?.classList.contains("nav-collapsed")) {
+        toggle?.focus({ preventScroll: true });
+        applyPeek(false);
+      }
     });
   }
 

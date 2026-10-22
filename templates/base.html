@@ -7,26 +7,27 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/lcars.css') }}" />
       <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}">
   </head>
-  <body>
+  <body data-markdown-root="{{ markdown_root.id }}" data-markdown-root-path="{{ markdown_root.display_path }}" data-markdown-context="{{ '1' if markdown_context_active else '0' }}">
+    <script src="{{ url_for('static', filename='js/markdown_context.js') }}"></script>
     <div class="shell">
-      <aside class="nav">
+      <aside class="nav" aria-label="Sidebar">
         
-        <button id="sidebar-toggle" class="mini sidebar-toggle" type="button">SIDE</button>
+        <button id="sidebar-toggle" class="mini sidebar-toggle" type="button" aria-label="Minimize sidebar" aria-expanded="true" aria-controls="primary-nav" title="Minimize sidebar">SIDE</button>
 
         <a class="brand-link" href="{{ url_for('dashboard') }}">
           <div class="brand">LCARS</div>
         </a>
 
-        <div id="primary-nav">
-          <a class="nav-pill {% if request.path == '/' %}active{% endif %}" href="{{ url_for('dashboard') }}">DASHBOARD</a>
-          <a class="nav-pill alt {% if request.path.startswith('/jupyter') %}active{% endif %}" href="{{ url_for('jupyter_page') }}">JUPYTER</a>
-          <a class="nav-pill gold {% if request.path.startswith('/aws') %}active{% endif %}" href="{{ url_for('aws_page') }}">AWS</a>
-          <a class="nav-pill blue {% if request.path.startswith('/books') or request.path.startswith('/reader') or request.path.startswith('/book') %}active{% endif %}" href="{{ url_for('books_page') }}">BOOKS</a>
-          <a class="nav-pill gold {% if request.path.startswith('/markdown') or request.path.startswith('/md/') %}active{% endif %}" data-markdown-library-link href="{{ url_for('markdown_page') }}">MARKDOWN</a>
-          <a class="nav-pill blue {% if request.path.startswith('/youtube') %}active{% endif %}" href="{{ url_for('youtube_page') }}">YOUTUBE</a>
-          <a class="nav-pill {% if request.path.startswith('/tmux') %}active{% endif %}" href="{{ url_for('tmux_page') }}">TMUX</a>
-          <a class="nav-pill alt {% if request.path.startswith('/focus') %}active{% endif %}" href="{{ url_for('focus_page') }}">FOCUS</a>
-        </div>
+        <nav id="primary-nav" aria-label="Primary">
+          <a class="nav-pill {% if request.path == '/' %}active{% endif %}" href="{{ url_for('dashboard') }}" title="Dashboard">DASHBOARD</a>
+          <a class="nav-pill alt {% if request.path.startswith('/jupyter') %}active{% endif %}" href="{{ url_for('jupyter_page') }}" title="Jupyter">JUPYTER</a>
+          <a class="nav-pill gold {% if request.path.startswith('/aws') %}active{% endif %}" href="{{ url_for('aws_page') }}" title="AWS">AWS</a>
+          <a class="nav-pill blue {% if request.path.startswith('/books') or request.path.startswith('/reader') or request.path.startswith('/book') %}active{% endif %}" href="{{ url_for('books_page') }}" title="Books">BOOKS</a>
+          <a class="nav-pill gold {% if request.path.startswith('/markdown') or request.path.startswith('/md/') %}active{% endif %}" data-markdown-library-link href="{{ url_for('markdown_page') }}" title="Markdown">MARKDOWN</a>
+          <a class="nav-pill blue {% if request.path.startswith('/youtube') %}active{% endif %}" href="{{ url_for('youtube_page') }}" title="YouTube">YOUTUBE</a>
+          <a class="nav-pill {% if request.path.startswith('/tmux') %}active{% endif %}" href="{{ url_for('tmux_page') }}" title="Tmux">TMUX</a>
+          <a class="nav-pill alt {% if request.path.startswith('/focus') %}active{% endif %}" href="{{ url_for('focus_page') }}" title="Focus">FOCUS</a>
+        </nav>
 
         <div id="markdown-doc-nav" class="hidden">
           <a class="nav-pill gold" href="{{ url_for('markdown_new') }}">NEW MD</a>
@@ -40,6 +41,10 @@
         {% block content %}{% endblock %}
       </main>
     </div>
+      {% if markdown_context_active %}
+      {% include "markdown_mount_modal.html" %}
+      <script src="{{ url_for('static', filename='js/markdown_mounts.js') }}"></script>
+      {% endif %}
       <script src="{{ url_for('static', filename='js/nav_toggle.js') }}"></script>
   </body>
 </html>

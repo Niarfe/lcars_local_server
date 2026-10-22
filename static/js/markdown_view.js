@@ -2,6 +2,8 @@
   const printButton = document.getElementById("print-markdown");
   const refreshTodoButton = document.getElementById("refresh-todo-view");
   const openFolderButton = document.getElementById("open-markdown-folder");
+  const backLink = document.getElementById("markdown-back");
+  if (backLink) backLink.href = window.lcarsMarkdown.backUrl(backLink.getAttribute("href"));
   const surface = document.getElementById("markdown-surface");
   const body = document.getElementById("markdown-body");
 
@@ -16,8 +18,12 @@
   const collateLinks = Array.from(document.querySelectorAll("[data-print-collate]"));
 
   const themeKey = "lcars-markdown-theme";
-  const fontKey = `markdown-font-scale:${window.location.pathname}`;
-  const fontFamilyKey = `markdown-font-family:${window.location.pathname}`;
+  const viewPath = window.location.pathname === "/md/view"
+    ? `/md/view/${encodeDocPath(openFolderButton?.dataset.docId)}`
+    : window.location.pathname;
+  const fontContext = `${viewPath}${window.lcarsMarkdown.root === 'markdown' ? '' : ':' + window.lcarsMarkdown.root}`;
+  const fontKey = `markdown-font-scale:${fontContext}`;
+  const fontFamilyKey = `markdown-font-family:${fontContext}`;
   const fontFamilies = {
     system: 'Inter, ui-sans-serif, system-ui, sans-serif',
     serif: 'Georgia, "Times New Roman", serif',
@@ -43,7 +49,7 @@
     button.textContent = "OPENING";
 
     try {
-      const response = await fetch(`/api/markdown/open-folder/${encodeDocPath(docId)}`, {
+      const response = await fetch(window.lcarsMarkdown.url(`/api/markdown/open-folder/${encodeDocPath(docId)}`), {
         method: "POST"
       });
       const data = await response.json();
@@ -243,9 +249,8 @@
   function updateCollateLinks() {
     collateLinks.forEach((link) => {
       const url = new URL(link.dataset.collateUrl || link.href, window.location.origin);
-      url.searchParams.set("font", fontFamily);
-      url.searchParams.set("scale", String(fontScale));
-      link.href = `${url.pathname}${url.search}`;
+      const separator = url.search ? "&" : "?";
+      link.href = `${url.pathname}${url.search}${separator}font=${encodeURIComponent(fontFamily)}&scale=${fontScale}`;
     });
   }
 
@@ -284,7 +289,7 @@
       refreshTodoButton.disabled = true;
       refreshTodoButton.textContent = "REFRESHING";
       try {
-        const response = await fetch(`/api/markdown/todo/refresh/${encodeDocPath(docId)}`, {
+        const response = await fetch(window.lcarsMarkdown.url(`/api/markdown/todo/refresh/${encodeDocPath(docId)}`), {
           method: "POST"
         });
         const data = await response.json();
@@ -354,14 +359,14 @@
       renameButton.disabled = true;
       renameButton.textContent = "RENAMING";
       try {
-        const response = await fetch(`/api/markdown/rename/${encodeDocPath(docId)}`, {
+        const response = await fetch(window.lcarsMarkdown.url(`/api/markdown/rename/${encodeDocPath(docId)}`), {
           method: "POST",
           headers: {"Content-Type": "application/json"},
           body: JSON.stringify({ name: nextName.trim() })
         });
         const data = await response.json();
         if (data.ok) {
-          window.location.href = data.url || "/markdown";
+          window.location.href = data.url || window.lcarsMarkdown.libraryUrl();
         } else {
           alert(data.error || "Rename failed");
         }
@@ -379,16 +384,16 @@
     deleteButton.addEventListener("click", async () => {
       const docId = deleteButton.dataset.docId || "";
       const docName = deleteButton.dataset.docName || "";
-      const ok = window.confirm(`Delete Markdown file "${docName}"? This cannot be undone.`);
+      const ok = window.confirm(`Delete Markdown file "${docName}"?\n${document.body.dataset.markdownRootPath}/${docId}\n\nThis cannot be undone.`);
       if (!ok) return;
 
       deleteButton.disabled = true;
       deleteButton.textContent = "DELETING";
       try {
-        const response = await fetch(`/api/markdown/delete/${encodeDocPath(docId)}`, { method: "POST" });
+        const response = await fetch(window.lcarsMarkdown.url(`/api/markdown/delete/${encodeDocPath(docId)}`), { method: "POST" });
         const data = await response.json();
         if (data.ok) {
-          window.location.href = "/markdown";
+          window.location.href = window.lcarsMarkdown.libraryUrl();
         } else {
           alert(data.error || "Delete failed");
         }
