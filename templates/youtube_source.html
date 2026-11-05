@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}YouTube Source{% endblock %}
+{% block sidebar_extra %}{% include "youtube_sidebar.html" %}{% endblock %}
 {% block content %}
 <header class="hero">
   <div>
@@ -8,7 +9,8 @@
   </div>
   <div class="hero-badges">
     <a class="badge linklike" href="{{ url_for('youtube_capture') }}">CAPTURE</a>
-    <a class="badge gold linklike" href="{{ url_for('youtube_page') }}">LIBRARY</a>
+    <a class="badge gold linklike" href="{{ library_url }}">LIBRARY</a>
+    {% if filtered %}<a class="badge blue linklike" href="{{ url_for('youtube_source', source_id=source.id) }}">ALL SOURCE VIDEOS</a>{% endif %}
   </div>
 </header>
 
@@ -49,7 +51,7 @@
       {% endfor %}
     </div>
     {% endif %}
-    {% if source.videos|length == 0 %}
+    {% if source.video_count == 0 %}
     <form class="youtube-source-actions" action="{{ url_for('youtube_source_delete', source_id=source.id) }}" method="post">
       <button class="action danger" type="submit" onclick="return confirm('Delete this empty source?')">DELETE EMPTY SOURCE</button>
     </form>
@@ -59,7 +61,7 @@
   <div class="panel">
     <div class="panel-header">
       <span>SAVED ITEMS</span>
-      <span class="subtle">{{ source.videos|length }}</span>
+      <span class="subtle">{% if filtered %}{{ source.videos|length }} MATCHING / {% endif %}{{ source.video_count }} SAVED{% if selected_tags %} &middot; {{ selected_tags|join(' + ') }}{% elif untagged %} &middot; UNTAGGED{% endif %}{% if query %} &middot; SEARCH: {{ query }}{% endif %}</span>
     </div>
     {% if source.videos %}
     <div class="youtube-video-stack">
@@ -107,8 +109,8 @@
     </div>
     {% else %}
     <div class="empty-state">
-      <div class="empty-title">NO SAVED ITEMS</div>
-      <div class="subtle">Capture a YouTube URL for this source.</div>
+      <div class="empty-title">{% if filtered %}NO MATCHING ITEMS{% else %}NO SAVED ITEMS{% endif %}</div>
+      <div class="subtle">{% if filtered %}Choose another tag or view all source videos.{% else %}Capture a YouTube URL for this source.{% endif %}</div>
     </div>
     {% endif %}
   </div>

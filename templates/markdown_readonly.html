@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Historical version{% endblock %}
+{% block sidebar_extra %}{% include "markdown_sidebar.html" %}{% endblock %}
+{% block content %}
+<section class="panel">
+  <div class="panel-header">HISTORICAL VERSION</div>
+  <p>Return to current work before editing or creating documents.</p>
+  <a class="badge linklike" href="{{ markdown_url_for('markdown_page') }}">LIBRARY ROOT</a>
+</section>
+{% endblock %}

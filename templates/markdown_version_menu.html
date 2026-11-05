@@ -1,0 +1,15 @@
+{% if markdown_version.enabled and not current_folder %}
+<div class="dropdown actions-dropdown version-dropdown">
+  <button class="badge blue actions-toggle" id="markdown-version-menu" type="button" aria-haspopup="true" aria-expanded="false">VERSION</button>
+  <div class="actions-menu" aria-label="Repository versions">
+    {% if not markdown_version.read_only %}
+    <button type="button" data-version-action="commit">COMMIT CHANGES…</button>
+    <button type="button" data-version-action="tag">CREATE TAG…</button>
+    {% endif %}
+    <button type="button" data-version-action="switch">VIEW AT TAG…</button>
+    <button type="button" data-version-action="latest">LATEST TAG</button>
+    {% if markdown_version.return_branch %}<button type="button" data-version-action="return">RETURN TO CURRENT WORK</button>{% endif %}
+    {% if not markdown_version.read_only %}<button type="button" data-version-action="push">PUSH BACKUP…</button>{% endif %}
+  </div>
+</div>
+{% endif %}

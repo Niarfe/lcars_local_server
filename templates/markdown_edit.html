@@ -20,6 +20,9 @@
   <div class="markdown-meta markdown-root-path">{{ markdown_root.display_path }}/{{ file_path }}</div>
   <div class="markdown-edit-toolbar" aria-label="Markdown editing tools">
     <button class="mini" id="toggle-blockquote" type="button" title="Toggle blockquote on selected lines (Cmd/Ctrl+Shift+.)">QUOTE</button>
+    <button class="mini" id="format-italic" type="button" title="Italicize selected text and add a trailing space (Cmd/Ctrl+I)">ITALIC</button>
+    <button class="mini" id="format-bold" type="button" title="Make selected text bold (Cmd/Ctrl+B)">BOLD</button>
+    <button class="mini" id="format-code" type="button" title="Format selected text as inline code">CODE</button>
     <button class="mini alt" id="move-lines-up" type="button" title="Move selected lines up (Alt+Up or Alt+K)">LINE UP</button>
     <button class="mini alt" id="move-lines-down" type="button" title="Move selected lines down (Alt+Down or Alt+J)">LINE DOWN</button>
   </div>
@@ -28,6 +31,7 @@
 
 <script>
   window.__MARKDOWN_DOC_ID__ = {{ doc_id|tojson }};
+  window.__MARKDOWN_REVISION__ = {{ source_revision|tojson }};
 </script>
 <script src="{{ url_for('static', filename='js/markdown_edit.js') }}"></script>
 {% endblock %}

@@ -19,6 +19,7 @@
     <span>TRANSCRIPT ERROR</span>
     <span class="subtle">{{ error }}</span>
   </div>
+  <a class="badge linklike" href="{{ url_for('youtube_video_transcript', video_id=video.id, choose=1) }}">RETRY / CHOOSE LANGUAGE</a>
 </section>
 {% endif %}
 
@@ -33,7 +34,7 @@
     {% endif %}
     <div class="youtube-detail-title">{{ video.title }}</div>
     <div class="subtle">{{ video.source_name }}</div>
-    <div class="youtube-card-meta">PROXY {{ "ON" if using_proxy else "OFF" }}</div>
+    <div class="youtube-card-meta">CONNECTION {{ "PROXY" if using_proxy else "DIRECT" }}</div>
 
     {% if existing_transcripts %}
     <div class="youtube-transcript-list">
@@ -63,6 +64,7 @@
             name="language_code"
             type="radio"
             value="{{ language.code }}"
+            required
             {% if language.code == probe.recommended_language %}checked{% endif %}
           />
           <span>

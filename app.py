@@ -30,6 +30,9 @@ from jupyter_server.serverapp import list_running_servers
 
 from scripts import build_todo as todo_builder
 from scripts import markdown_mounts
+from scripts import markdown_versions
+from scripts.markdown_citations import PastedCitationsExtension
+from scripts.markdown_lists import PastedListsExtension
 
 app = Flask(__name__)
 BASE_DIR = Path.home()
@@ -83,7 +86,9 @@ MARKDOWN_DIR = expand_content_path(CONTENT_CONFIG.get("markdown_dir", ""), APP_D
 SOUNDS_DIR = expand_content_path(CONTENT_CONFIG.get("sounds_dir", ""), APP_DIR / "static" / "sounds")
 ARCHIVE_DIR = MARKDOWN_DIR.parent / "archive"
 
-MARKDOWN_EXTENSIONS = ["fenced_code", "tables", "toc", "sane_lists", "codehilite"]
+MARKDOWN_EXTENSIONS = [
+    "fenced_code", "tables", "toc", PastedListsExtension(), PastedCitationsExtension(), "codehilite",
+]
 MARKDOWN_EXTENSION_CONFIGS = {
     "codehilite": {
         "guess_lang": False,
@@ -113,7 +118,6 @@ MARKDOWN_PAGE_BREAK_RE = re.compile(
     r"<!--\s*(?:pagebreak|page-break|page break)\s*-->)\s*$",
     re.IGNORECASE,
 )
-MARKDOWN_UNORDERED_LIST_LINE_RE = re.compile(r"^[ \t]{0,3}[-*+][ \t]+")
 
 
 def ensure_content_dirs() -> None:
@@ -590,6 +594,11 @@ def ensure_s3_book_cached(book: dict[str, Any]) -> dict[str, Any]:
     if cache_path.exists() and cache_path.stat().st_size > 0:
         return {"path": cache_path, "downloaded": False}
 
+    with markdown_versions.writable(cache_path):
+        return download_s3_book(book, cache_path)
+
+
+def download_s3_book(book: dict[str, Any], cache_path: Path) -> dict[str, Any]:
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     partial_path = cache_path.with_name(f".{cache_path.name}.part")
     request_obj = Request(
@@ -757,12 +766,59 @@ def select_markdown_root() -> Any:
 
 @app.context_processor
 def markdown_template_context() -> dict[str, Any]:
+    version = {"enabled": False, "read_only": False}
+    if hasattr(g, "markdown_root"):
+        repo = markdown_versions.discover(markdown_root_path())
+        if repo:
+            branch, head = repo.branch(), repo.head()
+            try:
+                state = repo.state()
+            except markdown_versions.VersionError:
+                state = {}
+            version = {
+                "enabled": repo.root == markdown_root_path().resolve(),
+                "read_only": not bool(branch), "repo_id": repo.key,
+                "view_tag": state.get("view_tag", "") if state.get("view_commit") == head and not branch else "",
+                "return_branch": state.get("return_branch", "") if not branch else "",
+                "repo": str(repo.root),
+            }
     return {
         "markdown_url_for": markdown_url_for,
         "markdown_root": current_markdown_root(),
         "markdown_roots": getattr(g, "markdown_roots", []),
         "markdown_context_active": hasattr(g, "markdown_root"),
+        "markdown_version": version,
     }
+
+
+@app.before_request
+def protect_markdown_versions() -> Any:
+    if not hasattr(g, "markdown_root"):
+        return None
+    writes = {
+        "api_markdown_create", "api_markdown_save", "api_markdown_delete",
+        "api_markdown_rename", "api_markdown_archive", "api_markdown_todo_refresh",
+    }
+    if request.endpoint in {"markdown_edit", "markdown_new"}:
+        repo = markdown_versions.discover(markdown_root_path())
+        if repo and not repo.branch():
+            return render_template("markdown_readonly.html"), 409
+    if request.endpoint not in writes and request.endpoint != "markdown_edit":
+        return None
+    guard = markdown_versions.writable(markdown_root_path())
+    try:
+        guard.__enter__()
+    except (markdown_versions.VersionError, OSError) as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 409
+    g.markdown_write_guard = guard
+    return None
+
+
+@app.teardown_request
+def release_markdown_write_guard(error: BaseException | None) -> None:
+    guard = g.pop("markdown_write_guard", None)
+    if guard:
+        guard.__exit__(None, None, None)
 
 
 def markdown_files_in_root(root: Path, *, use_gitignore: bool) -> Iterator[Path]:
@@ -886,10 +942,11 @@ def refresh_todo_view(
     )
     existing = output_path.read_text(encoding="utf-8", errors="replace") if output_path.exists() else ""
     updated = todo_builder.merge_generated_view(existing, generated)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
     changed = existing != updated
     if changed:
-        output_path.write_text(updated, encoding="utf-8")
+        with markdown_versions.writable(MARKDOWN_DIR):
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(updated, encoding="utf-8")
 
     return {
         "path": output_path,
@@ -1306,7 +1363,7 @@ def markdown_signature_page_order(page_count: int, sheet_count: int) -> list[int
 
 
 def render_markdown(text: str, doc_id: str | None = None) -> str:
-    normalized = normalize_markdown_list_boundaries(normalize_markdown_task_lines(text))
+    normalized = normalize_markdown_task_lines(text)
     semantic = render_semantic_markdown(normalized)
     with_page_breaks = render_markdown_page_breaks(semantic)
     with_diagrams = render_mermaid_fences(with_page_breaks)
@@ -1583,42 +1640,6 @@ def normalize_markdown_task_lines(text: str) -> str:
     return re.sub(r"(?m)^(\s*)\[(x|X| )\]\s+", r"\1- [\2] ", text)
 
 
-def normalize_markdown_list_boundaries(text: str) -> str:
-    """Let colon-led paragraphs introduce immediate unordered lists."""
-    lines = text.splitlines()
-    output: list[str] = []
-    in_fence = False
-    fence_char = ""
-    fence_len = 0
-
-    for line in lines:
-        fence_match = MARKDOWN_FENCE_LINE_RE.match(line)
-        if fence_match:
-            fence = fence_match.group(1)
-            if not in_fence:
-                in_fence = True
-                fence_char = fence[0]
-                fence_len = len(fence)
-            elif fence[0] == fence_char and len(fence) >= fence_len:
-                in_fence = False
-            output.append(line)
-            continue
-
-        if (
-            not in_fence
-            and output
-            and output[-1].strip().endswith(":")
-            and MARKDOWN_UNORDERED_LIST_LINE_RE.match(line)
-            and output[-1].strip()
-            and not MARKDOWN_UNORDERED_LIST_LINE_RE.match(output[-1])
-        ):
-            output.append("")
-
-        output.append(line)
-
-    return "\n".join(output)
-
-
 def markdown_slug_from_title(title: str) -> str:
     cleaned = title.strip().lower()
     cleaned = re.sub(r"[^a-z0-9]+", "_", cleaned)
@@ -1711,27 +1732,38 @@ def get_markdown_scope(folder_id: str = "") -> dict[str, Any]:
     docs = [doc for doc in all_docs if not prefix or doc["id"].startswith(prefix)]
 
     current_parts = tuple(part for part in current_folder.split("/") if part)
-    child_names: set[str] = set()
-    for doc in docs:
-        folder_parts = tuple(Path(doc["id"]).parts[:-1])
-        if folder_parts[:len(current_parts)] != current_parts:
-            continue
-        if len(folder_parts) > len(current_parts):
-            child_names.add(folder_parts[len(current_parts)])
+    folder_paths = [Path(doc["id"]).parts[:-1] for doc in all_docs]
+
+    def child_folder_names(parent_parts: tuple[str, ...]) -> set[str]:
+        return {
+            parts[len(parent_parts)]
+            for parts in folder_paths
+            if len(parts) > len(parent_parts) and parts[:len(parent_parts)] == parent_parts
+        }
+
+    navigation_parts = current_parts
+    child_names = child_folder_names(current_parts)
+    if current_parts and not child_names:
+        # A leaf keeps its parent's folder choices in place for lateral navigation.
+        navigation_parts = current_parts[:-1]
+        child_names = child_folder_names(navigation_parts)
+        child_names.add(current_parts[-1])
 
     children = [
         {
             "name": name,
-            "path": "/".join((*current_parts, name)),
+            "path": "/".join((*navigation_parts, name)),
+            "current": (*navigation_parts, name) == current_parts,
         }
         for name in sorted(child_names, key=str.casefold)
     ]
 
-    breadcrumbs: list[dict[str, str]] = [{"name": "ALL", "path": ""}]
+    breadcrumbs = [{"name": "ALL", "path": "", "current": not current_parts}]
     path_parts: list[str] = []
-    for part in current_parts:
+    for part in navigation_parts:
         path_parts.append(part)
-        breadcrumbs.append({"name": part, "path": "/".join(path_parts)})
+        path = "/".join(path_parts)
+        breadcrumbs.append({"name": part, "path": path, "current": path == current_folder})
 
     return {
         "docs": docs,
@@ -1739,8 +1771,24 @@ def get_markdown_scope(folder_id: str = "") -> dict[str, Any]:
         "current_name": current_parts[-1] if current_parts else "ALL",
         "breadcrumbs": breadcrumbs,
         "children": children,
+        "navigation_folder": "/".join(navigation_parts),
         "archive_folder": current_folder if current_folder and len(current_parts) == 1 and current_markdown_root()["primary"] else "",
     }
+
+
+def markdown_navigation_scope(folder_id: str = "", *, query: str = "", search_mode: str = "names") -> dict[str, Any]:
+    scope = get_markdown_scope(folder_id)
+    navigation_params = {}
+    if search_mode == "grep":
+        navigation_params["mode"] = "grep"
+    if query:
+        navigation_params["q"] = query
+    for folder in [*scope["breadcrumbs"], *scope["children"]]:
+        params = dict(navigation_params)
+        if folder["path"]:
+            params["folder"] = folder["path"]
+        folder["url"] = markdown_url_for("markdown_page", **params)
+    return scope
 
 
 def search_markdown_contents(
@@ -1984,6 +2032,17 @@ def youtube_tag_key(raw_tag: str) -> str:
     return normalize_youtube_tag(raw_tag).casefold()
 
 
+def youtube_tag_matches(tag: str, selected_tag: str) -> bool:
+    key, selected_key = youtube_tag_key(tag), youtube_tag_key(selected_tag)
+    return key == selected_key or key.startswith(selected_key + "-")
+
+
+def youtube_tag_paths(tag: str) -> list[str]:
+    """Include implicit parents, leaving underscores within each label intact."""
+    parts = normalize_youtube_tag(tag).split("-")
+    return ["-".join(parts[:depth]) for depth in range(1, len(parts) + 1)]
+
+
 def parse_tag_list(raw_tags: str) -> list[str]:
     tags: list[str] = []
     seen: set[str] = set()
@@ -1999,16 +2058,16 @@ def parse_tag_list(raw_tags: str) -> list[str]:
 
 def transcript_client() -> Any:
     try:
-        from yt_transcripts import TranscriptClient
+        import yt_transcripts  # noqa: F401 -- verify the optional dependency
     except ImportError as exc:
         raise RuntimeError(
             "yt_transcripts is not installed. Run: pip install -e "
             "/Users/praedator/Documents/COMICS/repos/mini_data_pipeline"
         ) from exc
 
-    if not hasattr(app, "_yt_transcript_client"):
-        app._yt_transcript_client = TranscriptClient(dotenv_path=YOUTUBE_DOTENV_PATH)  # type: ignore[attr-defined]
-    return app._yt_transcript_client  # type: ignore[attr-defined]
+    from scripts.youtube_transcripts import YouTubeTranscriptClient
+
+    return YouTubeTranscriptClient(dotenv_path=YOUTUBE_DOTENV_PATH)
 
 
 def safe_language_slug(language_code: str) -> str:
@@ -2541,24 +2600,52 @@ def delete_youtube_source(source_id: int, require_empty: bool = True) -> dict[st
     return {"deleted": 1, "video_count": video_count}
 
 
+def filter_youtube_items(
+    items: list[dict[str, Any]],
+    query: str = "",
+    selected_tags: str | list[str] | tuple[str, ...] = (),
+    untagged: bool = False,
+) -> list[dict[str, Any]]:
+    normalized_query = query.strip().casefold()
+    selected = [selected_tags] if isinstance(selected_tags, str) else selected_tags
+    selected = [tag for tag in selected if normalize_youtube_tag(tag)]
+    results: list[dict[str, Any]] = []
+    for item in items:
+        tags = item["tags"]
+        if untagged and tags:
+            continue
+        if not all(any(youtube_tag_matches(tag, choice) for tag in tags) for choice in selected):
+            continue
+        search_blob = " ".join(
+            [
+                str(item.get(field) or "")
+                for field in ("title", "notes", "source_name", "source_alias", "source_url", "source_notes")
+            ] + tags
+        ).casefold()
+        if normalized_query and normalized_query not in search_blob:
+            continue
+        results.append(item)
+    return results
+
+
 def get_youtube_sources(
     query: str = "",
     selected_tags: str | list[str] | tuple[str, ...] = (),
+    untagged: bool = False,
+    *,
+    matching_items: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    normalized_query = query.strip().casefold()
-    raw_selected_tags = [selected_tags] if isinstance(selected_tags, str) else selected_tags
-    selected_tag_keys = {
-        youtube_tag_key(tag)
-        for tag in raw_selected_tags
-        if normalize_youtube_tag(tag)
-    }
+    if matching_items is None:
+        matching_items = get_youtube_items(query, selected_tags, untagged)
+    videos_by_source: dict[int, list[dict[str, Any]]] = {}
+    for video in matching_items:
+        videos_by_source.setdefault(int(video["source_id"]), []).append(video)
+
     with get_youtube_db() as conn:
         source_tags = youtube_tags_for(conn, "youtube_source_tags", "source_id")
-        video_tags = youtube_tags_for(conn, "youtube_video_tags", "video_id")
         sources = [dict(row) for row in conn.execute(
             """
-            SELECT source.*,
-                   COUNT(video.id) AS video_count,
+            SELECT source.*, COUNT(video.id) AS video_count,
                    MAX(video.updated_at) AS last_saved_at
             FROM youtube_sources source
             LEFT JOIN youtube_videos video ON video.source_id = source.id
@@ -2566,134 +2653,139 @@ def get_youtube_sources(
             ORDER BY COALESCE(MAX(video.updated_at), source.updated_at) DESC, source.name
             """
         ).fetchall()]
-        videos = [dict(row) for row in conn.execute(
-            """
-            SELECT video.*
-            FROM youtube_videos video
-            ORDER BY video.updated_at DESC
-            """
-        ).fetchall()]
-
-    videos_by_source: dict[int, list[dict[str, Any]]] = {}
-    for video in videos:
-        video["tags"] = video_tags.get(int(video["id"]), [])
-        videos_by_source.setdefault(int(video["source_id"]), []).append(video)
 
     cards: list[dict[str, Any]] = []
     for source in sources:
         source_id = int(source["id"])
-        source_videos = videos_by_source.get(source_id, [])
-        latest_video = source_videos[0] if source_videos else None
-        source_only_tags = source_tags.get(source_id, [])
-        tags: list[str] = []
-        tag_keys: set[str] = set()
-        for tag in source_only_tags:
-            key = youtube_tag_key(tag)
-            if key and key not in tag_keys:
-                tag_keys.add(key)
-                tags.append(normalize_youtube_tag(tag))
-        for video in source_videos:
-            for tag in video.get("tags", []):
-                key = youtube_tag_key(tag)
-                if key and key not in tag_keys:
-                    tag_keys.add(key)
-                    tags.append(normalize_youtube_tag(tag))
-        tags.sort(key=str.casefold)
-        thumbnail = (
+        videos = videos_by_source.get(source_id, [])
+        if not videos and (source["video_count"] or query or selected_tags or untagged):
+            continue
+        latest_video = videos[0] if videos else None
+        source["source_tags"] = source_tags.get(source_id, [])
+        source["tags"] = sorted({
+            *source["source_tags"],
+            *(tag for video in videos for tag in video["tags"]),
+        }, key=str.casefold)
+        source["matching_count"] = len(videos)
+        source["videos"] = videos[:1]
+        source["video_titles"] = [str(video["title"]) for video in videos]
+        source["latest_video"] = latest_video
+        source["thumbnail_url"] = (
             str(latest_video["thumbnail_url"])
             if latest_video and latest_video.get("thumbnail_url")
             else str(source.get("thumbnail_url") or "")
         )
-        search_blob = " ".join(
-            [
-                str(source.get("name") or ""),
-                str(source.get("alias") or ""),
-                str(source.get("source_url") or ""),
-                str(source.get("notes") or ""),
-                " ".join(tags),
-                " ".join(
-                    " ".join(
-                        [
-                            str(video.get("title") or ""),
-                            str(video.get("notes") or ""),
-                            " ".join(video.get("tags", [])),
-                        ]
-                    )
-                    for video in source_videos
-                ),
-            ]
-        ).casefold()
-        if normalized_query and normalized_query not in search_blob:
-            continue
-        if not selected_tag_keys.issubset(tag_keys):
-            continue
-
-        source["tags"] = tags
-        source["source_tags"] = source_only_tags
-        source["videos"] = source_videos[:1]
-        source["video_titles"] = [str(video.get("title") or "") for video in source_videos]
-        source["latest_video"] = latest_video
-        source["thumbnail_url"] = thumbnail
         cards.append(source)
-
     return cards
 
 
 def get_youtube_items(
     query: str = "",
     selected_tags: str | list[str] | tuple[str, ...] = (),
+    untagged: bool = False,
 ) -> list[dict[str, Any]]:
-    normalized_query = query.strip().casefold()
-    raw_selected_tags = [selected_tags] if isinstance(selected_tags, str) else selected_tags
-    selected_tag_keys = {
-        youtube_tag_key(tag)
-        for tag in raw_selected_tags
-        if normalize_youtube_tag(tag)
-    }
     with get_youtube_db() as conn:
         source_tags = youtube_tags_for(conn, "youtube_source_tags", "source_id")
         video_tags = youtube_tags_for(conn, "youtube_video_tags", "video_id")
         items = [dict(row) for row in conn.execute(
             """
-            SELECT video.*,
-                   source.name AS source_name,
-                   source.alias AS source_alias
+            SELECT video.*, source.name AS source_name, source.alias AS source_alias,
+                   source.source_url AS source_url, source.notes AS source_notes
             FROM youtube_videos video
             JOIN youtube_sources source ON source.id = video.source_id
-            ORDER BY video.updated_at DESC, video.title
+            ORDER BY video.updated_at DESC, video.id DESC
             """
         ).fetchall()]
-
-    results: list[dict[str, Any]] = []
     for item in items:
-        tags: list[str] = []
-        tag_keys: set[str] = set()
-        for tag in [
-            *source_tags.get(int(item["source_id"]), []),
-            *video_tags.get(int(item["id"]), []),
-        ]:
-            key = youtube_tag_key(tag)
-            if key and key not in tag_keys:
-                tag_keys.add(key)
-                tags.append(normalize_youtube_tag(tag))
-        tags.sort(key=str.casefold)
-        search_blob = " ".join(
-            [
-                str(item.get("title") or ""),
-                str(item.get("notes") or ""),
-                str(item.get("source_name") or ""),
-                str(item.get("source_alias") or ""),
-                " ".join(tags),
-            ]
-        ).casefold()
-        if normalized_query and normalized_query not in search_blob:
-            continue
-        if not selected_tag_keys.issubset(tag_keys):
-            continue
-        item["tags"] = tags
-        results.append(item)
+        item["source_tags"] = source_tags.get(int(item["source_id"]), [])
+        item["video_tags"] = video_tags.get(int(item["id"]), [])
+        item["tags"] = sorted({*item["source_tags"], *item["video_tags"]}, key=str.casefold)
+    return filter_youtube_items(items, query, selected_tags, untagged)
 
-    return results
+
+def build_youtube_tag_tree(
+    tag_labels: list[str],
+    search_items: list[dict[str, Any]],
+    selected_tags: list[str],
+) -> list[dict[str, Any]]:
+    counts: dict[str, int] = {}
+    for item in search_items:
+        # Multiple tags on one video must not inflate a parent's count.
+        paths = {path for tag in item["tags"] for path in youtube_tag_paths(tag)}
+        for path in paths:
+            counts[path] = counts.get(path, 0) + 1
+    nodes: dict[str, dict[str, Any]] = {}
+    roots: list[dict[str, Any]] = []
+    for tag in sorted(set(tag_labels + selected_tags), key=str.casefold):
+        parent = None
+        for path in youtube_tag_paths(tag):
+            if path not in nodes:
+                active = path in selected_tags
+                ancestor = any(choice.startswith(path + "-") for choice in selected_tags)
+                params = youtube_library_params()
+                params.pop("untagged", None)
+                params["tag"] = path
+                node = {
+                    "path": path, "label": path.rsplit("-", 1)[-1],
+                    "count": counts.get(path, 0), "children": [],
+                    "active": active, "ancestor": ancestor, "open": active or ancestor,
+                    "url": url_for("youtube_page", **params),
+                }
+                nodes[path] = node
+                (parent["children"] if parent else roots).append(node)
+            parent = nodes[path]
+    return roots
+
+
+def youtube_library_params() -> dict[str, Any]:
+    params: dict[str, Any] = {}
+    query = request.args.get("q", "").strip()
+    if query:
+        params["q"] = query
+    if request.args.get("view", "").strip().lower() == "items":
+        params["view"] = "items"
+    if request.args.get("untagged") == "1":
+        params["untagged"] = "1"
+    else:
+        selected_tags = parse_tag_list("\n".join(request.args.getlist("tag")))
+        if selected_tags:
+            params["tag"] = selected_tags
+    return params
+
+
+def youtube_browse_context() -> dict[str, Any]:
+    params = youtube_library_params()
+    query = params.get("q", "")
+    selected_tags = params.get("tag", [])
+    untagged = params.get("untagged") == "1"
+    all_items = get_youtube_items()
+    search_items = filter_youtube_items(all_items, query)
+    items = filter_youtube_items(search_items, selected_tags=selected_tags, untagged=untagged)
+    all_params = {key: value for key, value in params.items() if key not in {"tag", "untagged"}}
+    source_count, video_count = get_youtube_library_counts()
+    tag_filters = []
+    for tag in selected_tags:
+        remaining = [choice for choice in selected_tags if choice != tag]
+        tag_filters.append({
+            "label": tag,
+            "url": url_for("youtube_page", **{**all_params, "tag": remaining}),
+        })
+    return {
+        "query": query, "selected_tags": selected_tags, "untagged": untagged,
+        "view": "items" if params.get("view") == "items" else "sources",
+        "matching_items": items, "matching_video_count": len(items),
+        "filtered": bool(query or selected_tags or untagged),
+        "source_count": source_count, "video_count": video_count,
+        "tag_tree": build_youtube_tag_tree(get_youtube_tag_labels(), search_items, selected_tags),
+        "tag_filters": tag_filters, "search_video_count": len(search_items),
+        "untagged_count": sum(not item["tags"] for item in search_items),
+        "all_tags_url": url_for("youtube_page", **all_params),
+        "untagged_url": url_for("youtube_page", **{**all_params, "untagged": "1"}),
+        "sources_url": url_for("youtube_page", **{key: value for key, value in params.items() if key != "view"}),
+        "items_url": url_for("youtube_page", **{**params, "view": "items"}),
+        "library_url": url_for("youtube_page", **params),
+        "clear_search_url": url_for("youtube_page", **{key: value for key, value in params.items() if key != "q"}),
+    }
 
 
 def get_youtube_source(source_id: int) -> dict[str, Any] | None:
@@ -2870,8 +2962,9 @@ def write_youtube_transcript(video: dict[str, Any], doc: Any) -> dict[str, Any]:
     language_code = str(transcript_value(doc, "language_code") or "")
     rel_path = youtube_transcript_rel_path(video, language_code)
     path = youtube_transcript_abs_path(rel_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(youtube_transcript_markdown(video, doc), encoding="utf-8")
+    with markdown_versions.writable(MARKDOWN_DIR):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(youtube_transcript_markdown(video, doc), encoding="utf-8")
     return save_youtube_transcript_record(int(video["id"]), doc, rel_path)
 
 
@@ -3163,22 +3256,15 @@ def markdown_page() -> str:
     query = request.args.get("q", "").strip()[:200]
     search_mode = "grep" if request.args.get("mode", "").strip().lower() == "grep" else "names"
     try:
-        scope = get_markdown_scope(request.args.get("folder", "") if current_markdown_root()["available"] else "")
+        scope = markdown_navigation_scope(
+            request.args.get("folder", "") if current_markdown_root()["available"] else "",
+            query=query,
+            search_mode=search_mode,
+        )
     except ValueError:
         abort(404)
     if search_mode == "grep" and query:
         scope["docs"] = search_markdown_contents(scope["docs"], query)
-
-    navigation_params: dict[str, str] = {}
-    if search_mode == "grep":
-        navigation_params["mode"] = "grep"
-    if query:
-        navigation_params["q"] = query
-    for folder in [*scope["breadcrumbs"], *scope["children"]]:
-        params = dict(navigation_params)
-        if folder["path"]:
-            params["folder"] = folder["path"]
-        folder["url"] = markdown_url_for("markdown_page", **params)
 
     return render_template(
         "markdown_list.html",
@@ -3189,61 +3275,19 @@ def markdown_page() -> str:
 
 @app.get("/youtube")
 def youtube_page() -> str:
-    query = request.args.get("q", "").strip()
-    selected_tags = parse_tag_list("\n".join(request.args.getlist("tag")))
-    view = "items" if request.args.get("view", "").strip().lower() == "items" else "sources"
-    notice = request.args.get("notice", "").strip()
-    sources = get_youtube_sources(query, selected_tags) if view == "sources" else []
-    items = get_youtube_items(query, selected_tags) if view == "items" else []
-    results = sources if view == "sources" else items
-    source_count, video_count = get_youtube_library_counts()
-    selected_tag_keys = {youtube_tag_key(tag) for tag in selected_tags}
-    available_tag_keys = set(selected_tag_keys)
-    for result in results:
-        available_tag_keys.update(youtube_tag_key(tag) for tag in result.get("tags", []))
-    tag_filters: list[dict[str, Any]] = []
-    tag_labels = get_youtube_tag_labels()
-    known_tag_keys = {youtube_tag_key(tag) for tag in tag_labels}
-    tag_labels.extend(
-        tag for tag in selected_tags if youtube_tag_key(tag) not in known_tag_keys
+    context = youtube_browse_context()
+    items = context.pop("matching_items")
+    sources = (
+        get_youtube_sources(context["query"], context["selected_tags"], context["untagged"], matching_items=items)
+        if context["view"] == "sources" else []
     )
-    for tag in sorted(tag_labels, key=str.casefold):
-        active = youtube_tag_key(tag) in selected_tag_keys
-        if not active and youtube_tag_key(tag) not in available_tag_keys:
-            continue
-        next_tags = (
-            [selected for selected in selected_tags if youtube_tag_key(selected) != youtube_tag_key(tag)]
-            if active
-            else [*selected_tags, tag]
-        )
-        params: dict[str, Any] = {"tag": next_tags}
-        if query:
-            params["q"] = query
-        if view == "items":
-            params["view"] = "items"
-        tag_filters.append(
-            {"label": tag, "active": active, "url": url_for("youtube_page", **params)}
-        )
-    all_params = {"q": query} if query else {}
-    if view == "items":
-        all_params["view"] = "items"
-    shared_view_params: dict[str, Any] = {"tag": selected_tags}
-    if query:
-        shared_view_params["q"] = query
+    params = youtube_library_params()
+    for entry in [*sources, *items]:
+        source_id = entry["source_id"] if "source_id" in entry else entry["id"]
+        entry["source_library_url"] = url_for("youtube_source", source_id=source_id, **params)
     return render_template(
-        "youtube.html",
-        query=query,
-        selected_tags=selected_tags,
-        view=view,
-        tag_filters=tag_filters,
-        all_tags_url=url_for("youtube_page", **all_params),
-        sources_url=url_for("youtube_page", **shared_view_params),
-        items_url=url_for("youtube_page", view="items", **shared_view_params),
-        notice=notice,
-        sources=sources,
-        items=items,
-        source_count=source_count,
-        video_count=video_count,
+        "youtube.html", **context, sources=sources, items=items,
+        notice=request.args.get("notice", "").strip(),
         bookmarklet=build_youtube_bookmarklet(request.host_url),
     )
 
@@ -3423,12 +3467,6 @@ def youtube_video_transcript_fetch(video_id: int) -> Any:
         record = write_youtube_transcript(video, doc)
         return redirect(url_for("markdown_view", doc_id=record["markdown_rel_path"]))
     except Exception as exc:
-        try:
-            if client:
-                probe_info = client.probe(str(video["video_id"]), include_metadata=False)
-        except Exception:
-            probe_info = {}
-
         return render_template(
             "youtube_transcript.html",
             video=video,
@@ -3484,7 +3522,11 @@ def youtube_source(source_id: int) -> str:
     if not source:
         abort(404)
     notice = request.args.get("notice", "").strip()
-    return render_template("youtube_source.html", source=source, notice=notice)
+    context = youtube_browse_context()
+    matching_ids = {int(item["id"]) for item in context.pop("matching_items")}
+    source["video_count"] = len(source["videos"])
+    source["videos"] = [video for video in source["videos"] if int(video["id"]) in matching_ids]
+    return render_template("youtube_source.html", source=source, notice=notice, **context)
 
 
 @app.get("/md/view")
@@ -3505,8 +3547,11 @@ def markdown_view(doc_id: str | None = None) -> Any:
         abort(404)
     text = doc_path.read_text(encoding="utf-8", errors="replace")
     has_page_breaks = bool(split_markdown_pages(text))
+    parent_folder = doc_path.parent.relative_to(markdown_root_path()).as_posix()
+    scope = markdown_navigation_scope(parent_folder if parent_folder != "." else "")
     return render_template(
         "markdown_view.html",
+        **scope,
         doc_id=doc_id,
         doc_name=doc_path.stem.replace("_", " ").replace("-", " ").title(),
         rendered=render_markdown(text, doc_id),
@@ -3632,13 +3677,15 @@ def markdown_edit(doc_id: str | None = None) -> str:
         abort(404)
     if not doc_path.exists():
         abort(404)
-    text = doc_path.read_text(encoding="utf-8", errors="replace")
+    source = doc_path.read_bytes()
+    text = source.decode("utf-8", errors="replace")
     return render_template(
         "markdown_edit.html",
         doc_id=doc_id,
         doc_name=doc_path.stem.replace("_", " ").replace("-", " ").title(),
         source_text=text,
         file_path=doc_path.relative_to(markdown_root_path()).as_posix(),
+        source_revision=markdown_versions.document_revision(doc_path, source),
     )
 
 
@@ -3750,7 +3797,11 @@ def api_book_delete(book_id: str) -> Any:
         return jsonify({"ok": False, "error": "Invalid book path"}), 404
     if not path.exists():
         return jsonify({"ok": False, "error": "Book not found"}), 404
-    path.unlink()
+    try:
+        with markdown_versions.writable(path):
+            path.unlink()
+    except markdown_versions.VersionError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 409
     return jsonify({"ok": True})
 
 @app.get("/focus")
@@ -4021,6 +4072,72 @@ def api_markdown_unmount(root_id: str) -> Any:
     return jsonify({"ok": True, "url": url_for("markdown_page")})
 
 
+@app.get("/api/markdown/version")
+def api_markdown_version() -> Any:
+    try:
+        repo = markdown_versions.at_root(markdown_root_path())
+        with repo.lock():
+            version = repo.status(application_dir=APP_DIR)
+        return jsonify({"ok": True, "version": version})
+    except (markdown_versions.VersionError, OSError) as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 409
+
+
+@app.post("/api/markdown/version/editor")
+def api_markdown_version_editor() -> Any:
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict) or not isinstance(payload.get("dirty"), bool):
+        return jsonify({"ok": False, "error": "Invalid editor session"}), 400
+    try:
+        repo = markdown_versions.discover(markdown_root_path())
+        if repo:
+            sequence = payload.get("sequence", 0)
+            if not isinstance(sequence, int) or sequence < 0:
+                raise markdown_versions.VersionError("Invalid editor sequence")
+            markdown_versions.editor_lease(repo, payload.get("id", ""), payload.get("doc", ""), payload["dirty"], sequence)
+        return jsonify({"ok": True})
+    except markdown_versions.VersionError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
+@app.post("/api/markdown/version/<action>")
+def api_markdown_version_action(action: str) -> Any:
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return jsonify({"ok": False, "error": "Invalid version request"}), 400
+    if action not in {"commit", "tag", "switch", "latest", "return", "push"}:
+        return jsonify({"ok": False, "error": "Unknown version action"}), 404
+    try:
+        repo = markdown_versions.at_root(markdown_root_path())
+        with repo.lock():
+            repo.require_supported()
+            repo.validate_preview(payload.get("token", ""))
+            repo.require_saved_editors()
+            if action == "commit":
+                path = payload.get("path", "")
+                if not isinstance(path, str):
+                    raise markdown_versions.VersionError("Invalid document path")
+                if path:
+                    path = safe_markdown_path(path).relative_to(repo.root).as_posix()
+                result = repo.commit(payload.get("description", ""), path)
+            elif action == "tag":
+                result = repo.create_tag(payload.get("name", ""), payload.get("description", ""))
+            elif action in {"switch", "latest"}:
+                name = payload.get("name", "")
+                if action == "latest":
+                    name = repo.status(application_dir=APP_DIR)["latest_tag"]
+                result = repo.switch(name, application_dir=APP_DIR)
+            elif action == "return":
+                result = repo.return_to_work(application_dir=APP_DIR)
+            else:
+                result = repo.push(payload.get("remote", ""), payload.get("tag", ""))
+        return jsonify({"ok": True, "result": result})
+    except markdown_versions.VersionError as exc:
+        return jsonify({"ok": False, "error": str(exc), "result": exc.result}), 409
+    except (ValueError, OSError) as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 409
+
+
 @app.get("/api/markdown/<path:doc_id>")
 def api_markdown_doc(doc_id: str) -> Any:
     try:
@@ -4031,7 +4148,8 @@ def api_markdown_doc(doc_id: str) -> Any:
     if not path.exists():
         return jsonify({"ok": False, "error": "Document not found"}), 404
 
-    text = path.read_text(encoding="utf-8", errors="replace")
+    source = path.read_bytes()
+    text = source.decode("utf-8", errors="replace")
     return jsonify({
         "ok": True,
         "id": doc_id,
@@ -4039,6 +4157,7 @@ def api_markdown_doc(doc_id: str) -> Any:
         "path": path.relative_to(markdown_root_path()).as_posix(),
         "text": text,
         "rendered": render_markdown(text, doc_id),
+        "revision": markdown_versions.document_revision(path, source),
         "mtime": path.stat().st_mtime,
     })
 
@@ -4050,16 +4169,22 @@ def api_markdown_save(doc_id: str) -> Any:
         return jsonify({"ok": False, "error": "Invalid markdown path"}), 404
 
     payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return jsonify({"ok": False, "error": "Invalid payload"}), 400
     text = payload.get("text", "")
     if not isinstance(text, str):
         return jsonify({"ok": False, "error": "Invalid payload"}), 400
+
+    revision = payload.get("revision")
+    if (revision is not None or markdown_versions.discover(markdown_root_path())) and revision != markdown_versions.document_revision(path):
+        return jsonify({"ok": False, "error": "This document or repository version changed after the editor opened. Your text is still in the editor; copy it before reloading."}), 409
 
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text, encoding="utf-8")
     except OSError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
-    return jsonify({"ok": True, "mtime": path.stat().st_mtime})
+    return jsonify({"ok": True, "mtime": path.stat().st_mtime, "revision": markdown_versions.document_revision(path)})
 
 
 @app.post("/api/markdown/todo/refresh/<path:doc_id>")

@@ -11,8 +11,7 @@
     const peeking = shell.classList.contains("nav-peeking");
     const label = collapsed
       ? (peeking ? "Keep sidebar open" : "Expand sidebar")
-      : "Minimize sidebar";
-    toggle.textContent = collapsed ? "NAV" : "SIDE";
+      : "Collapse sidebar";
     toggle.setAttribute("aria-label", label);
     toggle.setAttribute("title", label);
     toggle.setAttribute("aria-expanded", String(!collapsed || peeking));
@@ -20,16 +19,21 @@
 
   function applyPeek(peeking) {
     if (!shell) return;
-    shell.classList.toggle("nav-peeking", peeking && shell.classList.contains("nav-collapsed"));
+    const visible = (peeking || Boolean(nav?.querySelector(".sidebar-popover:popover-open"))) && shell.classList.contains("nav-collapsed");
+    const changed = shell.classList.contains("nav-peeking") !== visible;
+    shell.classList.toggle("nav-peeking", visible);
     updateToggle();
+    if (changed) document.dispatchEvent(new Event("sidebar-visibility-change"));
   }
 
   function applyCollapsed(collapsed) {
     if (!shell || !nav) return;
+    nav.querySelectorAll(".sidebar-popover:popover-open").forEach((menu) => menu.hidePopover());
     shell.classList.toggle("nav-collapsed", collapsed);
     shell.classList.remove("nav-peeking");
     localStorage.setItem("lcars-nav-collapsed", collapsed ? "1" : "0");
     updateToggle();
+    document.dispatchEvent(new Event("sidebar-visibility-change"));
   }
 
   function applyScale(scale) {
@@ -77,12 +81,87 @@
       }
     });
     nav.addEventListener("keydown", (event) => {
+      if (nav.querySelector(".sidebar-popover:popover-open")) return;
       if (event.key === "Escape" && shell?.classList.contains("nav-collapsed")) {
         toggle?.focus({ preventScroll: true });
         applyPeek(false);
       }
     });
   }
+
+  document.querySelectorAll("[data-sidebar-popover]").forEach((button) => {
+    const menu = document.getElementById(button.getAttribute("popovertarget"));
+    if (!menu) return;
+
+    function positionMenu() {
+      if (!menu.matches(":popover-open")) return;
+      const anchor = button.getBoundingClientRect();
+      const margin = 12;
+      const gap = 8;
+      const viewportWidth = document.documentElement.clientWidth;
+      const below = window.innerHeight - anchor.bottom - gap - margin;
+      const above = anchor.top - gap - margin;
+      const dropdown = button.dataset.sidebarPopover === "below";
+      const openAbove = dropdown && below < 200 && above > below;
+      const available = dropdown ? (openAbove ? above : below) : window.innerHeight - margin * 2;
+      menu.style.maxHeight = `${Math.max(0, Math.min(480, available))}px`;
+      const width = menu.offsetWidth;
+      const height = menu.offsetHeight;
+      let left = button.dataset.sidebarPopover === "right" ? anchor.right + gap : anchor.left;
+      let top = dropdown ? (openAbove ? anchor.top - gap - height : anchor.bottom + gap) : anchor.top;
+      left = Math.max(margin, Math.min(left, viewportWidth - width - margin));
+      top = Math.max(margin, Math.min(top, window.innerHeight - height - margin));
+      menu.style.left = `${left}px`;
+      menu.style.top = `${top}px`;
+    }
+
+    function focusItem(item) {
+      if (!item) return;
+      item.focus({ preventScroll: true });
+      const viewport = item.closest(".markdown-roots-list") || menu;
+      const bounds = viewport.getBoundingClientRect();
+      const row = item.getBoundingClientRect();
+      if (row.top < bounds.top) viewport.scrollTop -= bounds.top - row.top;
+      else if (row.bottom > bounds.bottom) viewport.scrollTop += row.bottom - bounds.bottom;
+    }
+
+    menu.addEventListener("toggle", (event) => {
+      const open = event.newState === "open";
+      button.setAttribute("aria-expanded", String(open));
+      if (open) {
+        positionMenu();
+        const selected = menu.querySelector("a[aria-current]") || menu.querySelector("a, button");
+        focusItem(selected);
+      }
+      const focused = document.activeElement;
+      applyPeek(nav?.matches(":hover") || (nav?.contains(focused) && focused.matches(":focus-visible")));
+    });
+    button.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        menu.showPopover();
+      }
+    });
+    menu.addEventListener("keydown", (event) => {
+      const keys = ["ArrowDown", "ArrowUp", "Home", "End"];
+      if (!keys.includes(event.key)) return;
+      const items = Array.from(menu.querySelectorAll("a[href], button:not(:disabled)"));
+      if (!items.length) return;
+      event.preventDefault();
+      const index = items.indexOf(document.activeElement);
+      const next = event.key === "Home" ? 0 : event.key === "End" ? items.length - 1
+        : (index + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+      focusItem(items[next]);
+    });
+    // Tab follows the links and eject buttons naturally; leaving closes the panel.
+    menu.addEventListener("focusout", (event) => {
+      if (!menu.contains(event.relatedTarget) && event.relatedTarget !== button && menu.matches(":popover-open")) {
+        menu.hidePopover();
+      }
+    });
+    window.addEventListener("resize", positionMenu);
+    window.addEventListener("scroll", positionMenu, { passive: true, capture: true });
+  });
 
   document.querySelectorAll(".ui-scale-option").forEach((button) => {
     button.addEventListener("click", () => {

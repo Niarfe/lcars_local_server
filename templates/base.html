@@ -7,30 +7,40 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/lcars.css') }}" />
       <link rel="icon" type="image/png" href="{{ url_for('static', filename='favicon.png') }}">
   </head>
-  <body data-markdown-root="{{ markdown_root.id }}" data-markdown-root-path="{{ markdown_root.display_path }}" data-markdown-context="{{ '1' if markdown_context_active else '0' }}">
+  <body data-markdown-root="{{ markdown_root.id }}" data-markdown-root-path="{{ markdown_root.display_path }}" data-markdown-context="{{ '1' if markdown_context_active else '0' }}" data-version-repo="{{ markdown_version.repo_id|default('') }}" data-version-readonly="{{ '1' if markdown_version.read_only else '0' }}">
     <script src="{{ url_for('static', filename='js/markdown_context.js') }}"></script>
+    {% if markdown_context_active %}<script src="{{ url_for('static', filename='js/markdown_versions.js') }}"></script>{% endif %}
     <div class="shell">
       <aside class="nav" aria-label="Sidebar">
-        
-        <button id="sidebar-toggle" class="mini sidebar-toggle" type="button" aria-label="Minimize sidebar" aria-expanded="true" aria-controls="primary-nav" title="Minimize sidebar">SIDE</button>
-
-        <a class="brand-link" href="{{ url_for('dashboard') }}">
-          <div class="brand">LCARS</div>
-        </a>
+        <div class="nav-header">
+          <a class="brand-link" href="{{ url_for('dashboard') }}">
+            <div class="brand">LCARS</div>
+          </a>
+          <button id="sidebar-toggle" class="mini sidebar-toggle" type="button" aria-label="Collapse sidebar" aria-expanded="true" aria-controls="primary-nav" title="Collapse sidebar">
+            <svg class="sidebar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg>
+          </button>
+        </div>
 
         <nav id="primary-nav" aria-label="Primary">
           <a class="nav-pill {% if request.path == '/' %}active{% endif %}" href="{{ url_for('dashboard') }}" title="Dashboard">DASHBOARD</a>
-          <a class="nav-pill alt {% if request.path.startswith('/jupyter') %}active{% endif %}" href="{{ url_for('jupyter_page') }}" title="Jupyter">JUPYTER</a>
-          <a class="nav-pill gold {% if request.path.startswith('/aws') %}active{% endif %}" href="{{ url_for('aws_page') }}" title="AWS">AWS</a>
-          <a class="nav-pill blue {% if request.path.startswith('/books') or request.path.startswith('/reader') or request.path.startswith('/book') %}active{% endif %}" href="{{ url_for('books_page') }}" title="Books">BOOKS</a>
           <a class="nav-pill gold {% if request.path.startswith('/markdown') or request.path.startswith('/md/') %}active{% endif %}" data-markdown-library-link href="{{ url_for('markdown_page') }}" title="Markdown">MARKDOWN</a>
           <a class="nav-pill blue {% if request.path.startswith('/youtube') %}active{% endif %}" href="{{ url_for('youtube_page') }}" title="YouTube">YOUTUBE</a>
-          <a class="nav-pill {% if request.path.startswith('/tmux') %}active{% endif %}" href="{{ url_for('tmux_page') }}" title="Tmux">TMUX</a>
+          <a class="nav-pill blue {% if request.path.startswith('/books') or request.path.startswith('/reader') or request.path.startswith('/book') %}active{% endif %}" href="{{ url_for('books_page') }}" title="Books">BOOKS</a>
           <a class="nav-pill alt {% if request.path.startswith('/focus') %}active{% endif %}" href="{{ url_for('focus_page') }}" title="Focus">FOCUS</a>
+          {% set monitor_active = request.path.startswith(('/jupyter', '/aws', '/tmux')) %}
+          <button class="nav-pill monitors-toggle{% if monitor_active %} active{% endif %}" id="monitors-toggle" type="button" popovertarget="monitors-menu" data-sidebar-popover="right" aria-haspopup="dialog" aria-expanded="false" aria-controls="monitors-menu" title="Monitors{% if monitor_active %}: {{ 'Jupyter' if request.path.startswith('/jupyter') else 'AWS' if request.path.startswith('/aws') else 'Tmux' }}{% endif %}">
+            <span>MONITORS</span><span class="nav-chevron" aria-hidden="true">&#x203A;</span>
+          </button>
+          <div class="sidebar-popover monitors-menu" id="monitors-menu" popover="auto" role="dialog" aria-labelledby="monitors-menu-title">
+            <div class="markdown-sidebar-title" id="monitors-menu-title">MONITORS</div>
+            <a class="nav-pill alt{% if request.path.startswith('/jupyter') %} active{% endif %}" href="{{ url_for('jupyter_page') }}"{% if request.path.startswith('/jupyter') %} aria-current="page"{% endif %}>JUPYTER</a>
+            <a class="nav-pill gold{% if request.path.startswith('/aws') %} active{% endif %}" href="{{ url_for('aws_page') }}"{% if request.path.startswith('/aws') %} aria-current="page"{% endif %}>AWS</a>
+            <a class="nav-pill{% if request.path.startswith('/tmux') %} active{% endif %}" href="{{ url_for('tmux_page') }}"{% if request.path.startswith('/tmux') %} aria-current="page"{% endif %}>TMUX</a>
+          </div>
         </nav>
 
         <div id="markdown-doc-nav" class="hidden">
-          <a class="nav-pill gold" href="{{ url_for('markdown_new') }}">NEW MD</a>
+          {% if not markdown_version.read_only %}<a class="nav-pill gold" href="{{ url_for('markdown_new') }}">NEW MD</a>{% endif %}
           <div id="markdown-doc-links" class="doc-nav-list"></div>
         </div>
 
@@ -38,11 +48,21 @@
       </aside>
 
       <main class="main {% block main_class %}{% endblock %}">
+        {% if markdown_version.read_only %}
+        <div class="version-banner" role="status">
+          <span>VIEWING {{ markdown_version.view_tag or 'HISTORICAL COMMIT' }} · READ ONLY</span>
+          {% if markdown_version.enabled and markdown_version.return_branch %}<button class="mini" type="button" data-version-action="return">RETURN TO CURRENT WORK</button>{% endif %}
+          <a class="mini linklike" href="{{ markdown_url_for('markdown_page') }}">LIBRARY ROOT</a>
+        </div>
+        {% endif %}
+        {% if markdown_context_active %}<div id="version-feedback" class="version-feedback hidden" role="status" aria-live="polite"></div>{% endif %}
         {% block content %}{% endblock %}
       </main>
     </div>
       {% if markdown_context_active %}
+      {% include "markdown_version_dialog.html" %}
       {% include "markdown_mount_modal.html" %}
+      <script src="{{ url_for('static', filename='js/markdown_sidebar.js') }}"></script>
       <script src="{{ url_for('static', filename='js/markdown_mounts.js') }}"></script>
       {% endif %}
       <script src="{{ url_for('static', filename='js/nav_toggle.js') }}"></script>

@@ -194,7 +194,7 @@ class YouTubeUrlTests(TestCase):
                 self.assertIn("TAGS: FRENCH + CAR", filtered_page)
                 self.assertIn("FRENCH ×", filtered_page)
 
-    def test_video_watch_list_and_contextual_tag_choices(self) -> None:
+    def test_video_watch_list_keeps_other_tag_choices_available(self) -> None:
         with TemporaryDirectory() as temp_dir:
             database_path = Path(temp_dir) / "youtube.sqlite3"
             with patch.object(app_module, "YOUTUBE_DB_PATH", database_path):
@@ -237,9 +237,10 @@ class YouTubeUrlTests(TestCase):
 
                 client = app_module.app.test_client()
                 que_page = client.get("/youtube?view=items&tag=_QUE_").get_data(as_text=True)
-                self.assertIn(">JOB</a>", que_page)
-                self.assertIn(">FUN</a>", que_page)
-                self.assertNotIn(">ICE</a>", que_page)
+                self.assertIn('data-youtube-tag="JOB"', que_page)
+                self.assertIn('data-youtube-tag="FUN"', que_page)
+                self.assertIn('data-youtube-tag="ICE"', que_page)
+                self.assertNotIn('>Ice Video</a>', que_page)
 
                 job_page = client.get(
                     "/youtube?view=items&tag=_QUE_&tag=_JOB_"
@@ -247,13 +248,15 @@ class YouTubeUrlTests(TestCase):
                 self.assertIn("WATCH LIST", job_page)
                 self.assertIn("Job Video", job_page)
                 self.assertNotIn("Fun Video", job_page)
-                self.assertNotIn(">FUN</a>", job_page)
+                self.assertIn('data-youtube-tag="FUN"', job_page)
 
                 ice_page = client.get("/youtube?view=items&tag=_ICE_").get_data(as_text=True)
                 self.assertIn("ICE ×", ice_page)
-                self.assertNotIn(">JOB</a>", ice_page)
-                self.assertNotIn(">FUN</a>", ice_page)
+                self.assertIn('data-youtube-tag="JOB"', ice_page)
+                self.assertIn('data-youtube-tag="FUN"', ice_page)
+                self.assertNotIn('>Job Video</a>', ice_page)
 
                 stale_page = client.get("/youtube?view=items&tag=_MISSING_").get_data(as_text=True)
                 self.assertIn("MISSING ×", stale_page)
-                self.assertNotIn(">JOB</a>", stale_page)
+                self.assertIn('data-youtube-tag="JOB"', stale_page)
+                self.assertIn("NO VIDEOS FOUND", stale_page)

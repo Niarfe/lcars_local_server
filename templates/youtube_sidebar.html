@@ -1,0 +1,34 @@
+{% macro tag_link(node) -%}
+<a class="youtube-tree-link{% if node.active %} current{% elif node.ancestor %} ancestor{% endif %}" href="{{ node.url }}" data-youtube-tag="{{ node.path }}" title="{{ node.path }} — {{ node.count }} matching video{{ '' if node.count == 1 else 's' }}"{% if node.active %} aria-current="page"{% endif %}>
+  <span class="youtube-tree-label">{{ node.label }}</span><span class="youtube-tree-count">{{ node.count }}</span>
+</a>
+{%- endmacro %}
+<nav class="youtube-sidebar-nav" aria-label="YouTube tags">
+  <div class="markdown-sidebar-title">YOUTUBE TAGS</div>
+  <div class="youtube-tag-scroll" id="youtube-tag-scroll" data-selection="{{ selected_tags|join('|') }}{{ '|untagged' if untagged else '' }}" tabindex="0" role="region" aria-label="Browse YouTube tags">
+    <a class="youtube-tree-link youtube-tree-root{% if not selected_tags and not untagged %} current{% endif %}" href="{{ all_tags_url }}"{% if not selected_tags and not untagged %} aria-current="page"{% endif %}>
+      <span class="youtube-tree-label">ALL VIDEOS</span><span class="youtube-tree-count">{{ search_video_count }}</span>
+    </a>
+    <a class="youtube-tree-link youtube-tree-root{% if untagged %} current{% endif %}" href="{{ untagged_url }}"{% if untagged %} aria-current="page"{% endif %}>
+      <span class="youtube-tree-label">UNTAGGED</span><span class="youtube-tree-count">{{ untagged_count }}</span>
+    </a>
+    <ul class="youtube-tag-tree">
+    {% for node in tag_tree recursive %}
+      <li>
+      {% if node.children %}
+        <details class="youtube-tag-branch" data-youtube-branch="{{ node.path }}"{% if node.open %} open data-reveal="true"{% endif %}>
+          <summary title="Expand or collapse {{ node.path }}">{{ tag_link(node) }}</summary>
+          <ul>{{ loop(node.children) }}</ul>
+        </details>
+      {% else %}
+        <div class="youtube-tag-leaf">{{ tag_link(node) }}</div>
+      {% endif %}
+      </li>
+    {% else %}
+      <li class="youtube-tree-empty">NO TAGS YET</li>
+    {% endfor %}
+    </ul>
+  </div>
+  <div class="youtube-tree-hint">- NESTS &middot; _ JOINS WORDS{% if query %}<br>COUNTS WITHIN SEARCH{% endif %}</div>
+</nav>
+<script src="{{ url_for('static', filename='js/youtube_sidebar.js') }}" defer></script>

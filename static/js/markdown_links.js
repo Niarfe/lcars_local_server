@@ -95,7 +95,7 @@
     const editUrl = new URL(url);
     editUrl.pathname = url.pathname.replace(/^\/md\/view(?=\/|$)/, "/md/edit");
     editUrl.hash = "";
-    editLink.href = `${editUrl.pathname}${editUrl.search}`;
+    if (editLink) editLink.href = `${editUrl.pathname}${editUrl.search}`;
     pathLabel.textContent = url.searchParams.get("path") || decodeURIComponent(url.pathname.replace(/^\/md\/view\//, ""));
     pathLabel.title = pathLabel.textContent;
   }

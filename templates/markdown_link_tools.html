@@ -17,7 +17,7 @@
     <div class="markdown-peek-actions">
       <button class="mini" id="markdown-peek-copy" type="button" data-copy-markdown-link="">COPY LINK</button>
       <a class="mini alt" id="markdown-peek-open">OPEN DOCUMENT</a>
-      <a class="mini alt" id="markdown-peek-edit">EDIT</a>
+      {% if not markdown_version.read_only %}<a class="mini alt" id="markdown-peek-edit">EDIT</a>{% endif %}
     </div>
   </div>
   <div class="subtle markdown-peek-status" id="markdown-peek-status" role="status"></div>

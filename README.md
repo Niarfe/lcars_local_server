@@ -36,6 +36,8 @@ The goal is to add capabilities without locking your content into a proprietary 
 ### Markdown Workspace
 
 - Render and edit Markdown
+- Pasted `•` bullets render as lists. Bullet lists can start directly after text without a blank line or a trailing colon; saved source stays unchanged.
+- Pasted citations such as `[1] (https://example.com)` or `[1] ([https://example.com](https://example.com))` display as clickable `[1]` source links, with the URL available on hover.
 - Paper and Dark themes
 - Folder organization
 - Persistent filtering
@@ -54,6 +56,18 @@ Current semantic blocks include:
 - Matrix (1xC)
 
 allowing ordinary Markdown to become visual dashboards while remaining portable.
+
+---
+
+### YouTube Library
+
+- Capture videos and Shorts, organize by source or video, and gather transcripts.
+- Transcript requests try a direct connection first, then the Webshare proxy when configured and needed. Each attempt has a 15-second limit, including DNS lookup; failures display a retry link. Videos with several generated language tracks require an explicit language choice.
+- Browse tags in the left sidebar. Dashes create nested groups (`MUSIC-CLASSICAL-PIANO`); underscores stay inside a name (`FRENCH_BLITZ`). Selecting a parent includes videos tagged directly there and anywhere below it.
+- Source tags apply to every saved video from that source. Individual video tags add further groups, and videos can belong to several groups.
+- Click a tag name to select its group and reveal its children. Use the arrow to expand or collapse without changing the selection. Expanded branches and the sidebar scroll position persist while navigating.
+- Search narrows the selected group; switching between **SOURCES** and **VIDEOS** keeps both the group and search. Source cards show matching versus total saved items, and opening a source keeps the same filters.
+- Sidebar counts show distinct videos within the current search, independently of the selected group. Other branches remain available even at zero matches. **UNTAGGED** collects videos with neither source nor video tags. **ALL VIDEOS** clears the tag selection while preserving search; **CLEAR SEARCH** keeps the selected group.
 
 ---
 
@@ -180,9 +194,13 @@ For example:
 
 This allows your notes and books to live in their own Git repository while LCARS itself can be upgraded independently.
 
-Markdown also supports additional folders through **MOUNT FOLDER** in its sidebar. Each mounted folder has its own **ALL** view and searches; editing happens in the original folder. Mounted Git repositories honor `.gitignore` and other Git exclusions for untracked Markdown, keeping ignored environments and generated files out of the library. **Unmount Folder** removes the mount without deleting files. Mounts persist in `content_config.json`, and `~/...` paths work regardless of where LCARS is installed. See [External Content Roots](CONTENT_ROOTS.md) for configuration and the current archive/TODO scope.
+Markdown also supports additional folders through the sidebar's mounted-folder dropdown. Click the current folder name to switch mounts, eject a mount, or choose **MOUNT FOLDER…** at the bottom. Switching mounts restores that mount's last library folder and search; its folder-list scroll position is remembered in your browser. The folder list scrolls independently beneath the navigation and mount selector. Each mounted folder has its own **ALL** view and searches; editing happens in the original folder. Mounted Git repositories honor `.gitignore` and other Git exclusions for untracked Markdown, keeping ignored environments and generated files out of the library. **Unmount Folder** removes the mount without deleting files. Mounts persist in `content_config.json`, and `~/...` paths work regardless of where LCARS is installed. See [External Content Roots](CONTENT_ROOTS.md) for configuration and the current archive/TODO scope.
+
+The sidebar places **DASHBOARD**, **MARKDOWN**, **YOUTUBE**, **BOOKS**, and **FOCUS** first, with **JUPYTER**, **AWS**, and **TMUX** in the **MONITORS** submenu. The icon beside **LCARS** collapses the sidebar; hovering over the collapsed rail or navigating it with the keyboard reveals it temporarily. Both sidebar dropdowns support arrow keys, Home/End, Tab, and Escape.
 
 The [Git ignore design decision](CONTENT_ROOTS.md#git-ignore-design-decision) records why LCARS delegates repository discovery to Git, prefers granular mounts, and keeps local document browsing separate from publishing.
+
+When a mounted folder is a Git repository root, its **ALL** view offers **VERSION** beside **FINDER**. Review and commit changes, create annotated milestone tags, visit a saved tag, return to current work, or push the branch and a selected tag to an existing backup remote. Milestones cover the whole repository, including code and non-Markdown documents. Switching requires a clean repository and saved LCARS editors; historical views are read-only. A document's **Actions → COMMIT…** records that file independently of milestones. See [Repository Versions And Milestones](CONTENT_ROOTS.md#repository-versions-and-milestones) for behavior and first-version limits.
 
 ---
 

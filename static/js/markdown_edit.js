@@ -5,6 +5,9 @@
   const pageBreakButton = document.getElementById("insert-page-break");
   const openFolderButton = document.getElementById("open-markdown-folder");
   const blockquoteButton = document.getElementById("toggle-blockquote");
+  const italicButton = document.getElementById("format-italic");
+  const boldButton = document.getElementById("format-bold");
+  const codeButton = document.getElementById("format-code");
   const moveUpButton = document.getElementById("move-lines-up");
   const moveDownButton = document.getElementById("move-lines-down");
 
@@ -22,10 +25,11 @@
       const response = await fetch(window.lcarsMarkdown.url(`/api/markdown/save/${encodeDocPath(docId)}`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: editor.value })
+        body: JSON.stringify({ text: editor.value, revision: window.__MARKDOWN_REVISION__ })
       });
       const data = await response.json();
       if (data.ok) {
+        window.lcarsVersions.editorSaved();
         window.location.href = document.getElementById("markdown-view-link").href;
       } else {
         alert(data.error || "Save failed");
@@ -68,6 +72,33 @@
     const cursor = start + marker.length;
     editor.focus();
     editor.setSelectionRange(cursor, cursor);
+  }
+
+  function formatSelection(marker, addTrailingSpace = false) {
+    const start = editor.selectionStart;
+    const end = editor.selectionEnd;
+    const selected = editor.value.slice(start, end);
+    // Keep selected whitespace outside the Markdown delimiters.
+    const leading = selected.match(/^\s*/)[0];
+    const content = selected.trim();
+    const trailing = selected.slice(leading.length + content.length);
+    const after = editor.value.slice(end);
+    const space = addTrailingSpace && !(trailing + after).startsWith(" ") ? " " : "";
+    let delimiter = marker;
+    let padding = "";
+
+    // Backtick runs inside inline code need a longer surrounding delimiter.
+    if (marker === "`" && content.includes("`")) {
+      const runs = content.match(/`+/g);
+      delimiter = "`".repeat(Math.max(...runs.map((run) => run.length)) + 1);
+      padding = " ";
+    }
+
+    const replacement = `${leading}${delimiter}${padding}${content}${padding}${delimiter}${space}${trailing}`;
+    editor.setRangeText(replacement, start, end, "end");
+    editor.focus();
+    const contentStart = start + leading.length + delimiter.length + padding.length;
+    editor.setSelectionRange(contentStart, contentStart + content.length);
   }
 
   function selectedLineBlock() {
@@ -167,6 +198,12 @@
       return;
     }
 
+    if (usesCommand && !event.shiftKey && !event.altKey && (key === "i" || key === "b")) {
+      event.preventDefault();
+      formatSelection(key === "i" ? "*" : "**", key === "i");
+      return;
+    }
+
     if (usesCommand && event.shiftKey && event.key === ".") {
       event.preventDefault();
       toggleBlockquote();
@@ -196,6 +233,18 @@
     blockquoteButton.addEventListener("click", toggleBlockquote);
   }
 
+  if (italicButton) {
+    italicButton.addEventListener("click", () => formatSelection("*", true));
+  }
+
+  if (boldButton) {
+    boldButton.addEventListener("click", () => formatSelection("**"));
+  }
+
+  if (codeButton) {
+    codeButton.addEventListener("click", () => formatSelection("`"));
+  }
+
   if (moveUpButton) {
     moveUpButton.addEventListener("click", () => moveSelectedLines(-1));
   }
@@ -206,4 +255,5 @@
 
   editor.addEventListener("keydown", handleEditorKeydown);
   saveButton.addEventListener("click", saveDoc);
+  window.lcarsVersions.trackEditor(editor, docId);
 })();

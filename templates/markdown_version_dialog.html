@@ -1,0 +1,38 @@
+<dialog class="version-dialog" id="version-dialog" aria-labelledby="version-title">
+  <form id="version-form">
+    <div class="panel-header">
+      <span id="version-title">REPOSITORY VERSION</span>
+      <button class="mini" id="version-close" type="button">CANCEL</button>
+    </div>
+    <p class="subtle version-scope" id="version-scope"></p>
+    <p id="version-explanation"></p>
+    <div class="version-fields">
+      <label id="version-name-field" class="hidden">TAG NAME
+        <input id="version-name" type="text" maxlength="200" placeholder="Example: reviewed-2026-11" autocomplete="off" />
+      </label>
+      <label id="version-description-field" class="hidden">DESCRIPTION
+        <textarea id="version-description" rows="3" maxlength="10000" placeholder="What changed, and what did you verify?"></textarea>
+      </label>
+      <label id="version-tag-field" class="hidden">SAVED TAG
+        <select id="version-tag"></select>
+      </label>
+      <p class="subtle hidden" id="version-tag-description"></p>
+      <label id="version-backup-field" class="version-check hidden">
+        <input id="version-backup" type="checkbox" /> PUSH THIS MILESTONE AFTER SAVING
+      </label>
+      <label id="version-remote-field" class="hidden">BACKUP REMOTE
+        <select id="version-remote"></select>
+      </label>
+      <p class="subtle hidden" id="version-remote-description"></p>
+      <label id="version-push-tag-field" class="hidden">INCLUDE TAG
+        <select id="version-push-tag"></select>
+      </label>
+    </div>
+    <div class="version-changes hidden" id="version-changes" aria-label="Files in this preview"></div>
+    <p id="version-status" role="status" aria-live="polite"></p>
+    <div class="version-dialog-actions">
+      <button class="mini hidden" type="button" id="version-commit-first">COMMIT CHANGES…</button>
+      <button class="action" id="version-confirm" type="submit" disabled>CONTINUE</button>
+    </div>
+  </form>
+</dialog>

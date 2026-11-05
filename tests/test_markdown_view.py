@@ -145,15 +145,97 @@ class MarkdownViewTests(TestCase):
                 self.assertIn("<li>followed immediately by a bullet</li>", html)
                 self.assertIn("<li>and then another</li>", html)
 
-    def test_colon_list_boundary_normalization_skips_fenced_code(self) -> None:
-        transformed = app_module.normalize_markdown_list_boundaries(
-            "```markdown\n"
-            "Some long line of text without any pound signs that ends in a colon:\n"
-            "- this should stay inside the code fence\n"
-            "```"
+    def test_paragraph_can_introduce_immediate_bullet_list_without_colon(self) -> None:
+        for ending in ("", ".", ":", "**"):
+            for marker in ("*", "-", "+", "•"):
+                with self.subTest(ending=ending, marker=marker):
+                    html = app_module.render_markdown(
+                        f"Here are the points{ending}\n{marker} First\n{marker} Second"
+                    )
+
+                    self.assertEqual(html.count("<ul>"), 1)
+                    self.assertIn("<li>First</li>", html)
+                    self.assertIn("<li>Second</li>", html)
+                    self.assertIn("</p>\n<ul>", html)
+
+    def test_unicode_bullets_accept_copied_spaces_and_mixed_markers(self) -> None:
+        html = app_module.render_markdown("• First\n•\u00a0Second\n* Third\n- Fourth\n+ Fifth")
+
+        self.assertEqual(html.count("<ul>"), 1)
+        self.assertEqual(html.count("<li>"), 5)
+        self.assertIn("<li>Second</li>", html)
+
+    def test_pasted_bullets_preserve_nested_lists_and_continuation_text(self) -> None:
+        for parent in ("*", "•", "3."):
+            with self.subTest(parent=parent):
+                source = (
+                    f"{parent} Parent\n    More detail.\n"
+                    "    • Child\n        • Grandchild\n    • Second child"
+                )
+                self.assertEqual(
+                    app_module.render_markdown(source),
+                    app_module.render_markdown(source.replace("•", "*")),
+                )
+                self.assertEqual(app_module.render_markdown(source).count("<li>"), 4)
+
+    def test_immediate_bullet_lists_work_inside_blockquotes(self) -> None:
+        html = app_module.render_markdown(
+            "> Here are the points.\n> • First\n> • Second"
         )
 
-        self.assertNotIn("colon:\n\n- this should stay inside", transformed)
+        self.assertIn("<blockquote>\n<p>Here are the points.</p>\n<ul>", html)
+        self.assertIn("<li>First</li>", html)
+        self.assertIn("<li>Second</li>", html)
+
+    def test_pasted_list_support_preserves_code_and_raw_html(self) -> None:
+        literal = "Introduction:\n• literal bullet\n* literal star"
+        for source in (
+            f"```\n{literal}\n```",
+            f"~~~\n{literal}\n~~~",
+            "\n".join("    " + line for line in literal.splitlines()),
+            f"<pre>\n{literal}\n</pre>",
+            f"<div>\n{literal}\n</div>",
+        ):
+            with self.subTest(source=source):
+                html = app_module.render_markdown(source)
+
+                self.assertIn(literal, html)
+                self.assertNotIn("<ul>", html)
+
+    def test_inline_and_escaped_bullets_remain_text(self) -> None:
+        html = app_module.render_markdown("Inline • bullet\n\\• escaped bullet\n`• code bullet`")
+
+        self.assertNotIn("<ul>", html)
+        self.assertIn("Inline • bullet", html)
+        self.assertIn("• escaped bullet", html)
+        self.assertIn("<code>• code bullet</code>", html)
+
+    def test_list_compatibility_preserves_rules_and_numbered_list_start(self) -> None:
+        html = app_module.render_markdown("Introduction\n* * *\n\n3. Third\n4. Fourth")
+
+        self.assertIn("<hr>", html)
+        self.assertIn('<ol start="3">', html)
+        self.assertIn("<li>Third</li>", html)
+        self.assertIn("<li>Fourth</li>", html)
+
+    def test_render_routes_support_pasted_lists_without_rewriting_source(self) -> None:
+        source = "Here are the points.\n• First\n• Second\n\n<!-- pagebreak -->\n\nNext page\n"
+        with TemporaryDirectory() as temp_dir:
+            markdown_dir = Path(temp_dir).resolve()
+            document = markdown_dir / "chat.md"
+            document.write_text(source, encoding="utf-8")
+
+            with patch.object(app_module, "MARKDOWN_DIR", markdown_dir):
+                client = app_module.app.test_client()
+                for route in ("view", "peek", "print-collate/1"):
+                    with self.subTest(route=route):
+                        response = client.get(f"/md/{route}/chat.md")
+
+                        self.assertEqual(response.status_code, 200)
+                        self.assertIn("<li>First</li>", response.get_data(as_text=True))
+                        self.assertIn("<li>Second</li>", response.get_data(as_text=True))
+
+            self.assertEqual(document.read_text(encoding="utf-8"), source)
 
     def test_markdown_page_break_marker_skips_fenced_code(self) -> None:
         transformed = app_module.render_markdown_page_breaks(

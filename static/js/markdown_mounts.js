@@ -80,12 +80,16 @@
   }
 
   openButton.addEventListener("click", () => {
+    document.getElementById("markdown-roots-menu")?.hidePopover();
     dialog.showModal();
     browse();
   });
   cancel.addEventListener("click", () => dialog.close());
   dialog.addEventListener("cancel", (event) => { if (mounting) event.preventDefault(); });
-  dialog.addEventListener("close", () => { requestNumber += 1; openButton.focus(); });
+  dialog.addEventListener("close", () => {
+    requestNumber += 1;
+    (document.getElementById("markdown-root-toggle") || openButton).focus({ preventScroll: true });
+  });
   dialog.addEventListener("click", (event) => {
     const rect = dialog.getBoundingClientRect();
     if (!mounting && event.target === dialog &&
@@ -135,6 +139,7 @@
         if (!data.ok) throw new Error(data.error || "Could not unmount folder");
         const context = window.lcarsMarkdown;
         localStorage.removeItem(`${context.libraryKey}:${root}`);
+        localStorage.removeItem(`lcars-markdown-sidebar:${root}`);
         const saved = new URL(localStorage.getItem(context.libraryKey) || "/markdown", window.location.origin);
         if (saved.searchParams.get("root") === root) localStorage.removeItem(context.libraryKey);
         if (context.root === root) window.location.href = data.url;

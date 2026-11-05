@@ -38,6 +38,8 @@ The Markdown sidebar has a **MOUNTS** section. **MOUNT FOLDER** opens a folder p
 
 Each mount is a separate library. **ALL**, folder navigation, name filtering, and GREP apply to the selected mount. Creating, editing, renaming, deleting, Finder access, images, relative Markdown links, and collated printing use that folder directly. LCARS does not copy or synchronize its files.
 
+The document viewer keeps folder navigation available for the document's containing folder. Selecting a folder with visible Markdown subfolders shows its children. Selecting a leaf folder keeps its siblings in place and highlights the selected folder in bold orange, while the document list narrows to that folder. For example, selecting `uva/f26/ai_course` keeps the other `f26` course folders available; selecting `uva/f26` shows all documents beneath the semester. The sidebar keeps its scroll position while switching between siblings or opening a document. Ignored dependency folders do not affect this navigation rule.
+
 Enable **FULL PATHS** above the document list to show each relative file path as a single bold line and sort by the full path. Disable it to restore document titles with their paths underneath and the original filename ordering. This preference is remembered in the browser across folders and mounts; both views use the same name filter and GREP search.
 
 Use the eject control beside a mount, labeled **Unmount Folder**, to remove its entry. Unmounting leaves the folder and its files untouched. The primary `markdown` library remains available and cannot be unmounted.
@@ -83,8 +85,29 @@ The accepted tradeoff is that a standalone `.gitignore` in an ordinary folder do
 
 ### Local Files And Publishing
 
-Mounting a folder and discovering its documents do not initialize a repository, stage files, create commits, configure remotes, or push anything. LCARS currently has no Git push action. The separate Archive feature in the primary library can stage content and create local checkpoint commits; it does not invoke `git push`.
+Mounting a folder and discovering its documents do not initialize a repository, stage files, create commits, configure remotes, or push anything. The explicit **VERSION** actions described below can commit, tag, and push an existing repository. The separate Archive feature in the primary library can stage content and create local checkpoint commits; it does not invoke `git push`.
 
 Running `git init` alone does not upload files or add a remote. Keeping any repository created only for LCARS without remotes removes the usual default push destination. This is not an absolute publishing restriction: another tool can add a remote or push to an explicit URL. Do not treat an LCARS-only repository as protected against publication merely because it has no remote today.
 
 A document can be visible in LCARS without being tracked or committed. Conversely, ignoring a previously tracked private file does not remove it from Git history. Keep local/private material untracked and ignored where appropriate, and review what is staged before committing or publishing from other tools. LCARS' document list is a local browsing view, not an indication that its contents should be published.
+
+### Repository Versions And Milestones
+
+Mount an existing Git repository's **root folder**, then select its **ALL** library view. **VERSION** appears beside **FINDER** there. A mount of only a subfolder, such as `lcars_data/markdown`, does not expose repository version actions: mount `lcars_data` itself to manage that repository's milestones. LCARS does not initialize repositories, configure Git identities, create GitHub repositories, or add remotes.
+
+- **COMMIT CHANGES…** previews changes across the entire repository and asks for a description. It stages and commits the reviewed changes, including code, images, new non-ignored files, and deletions.
+- **CREATE TAG…** asks for a unique tag name and description. It commits reviewed changes if needed, requires a clean working copy, then creates an annotated tag. A clean repository is tagged without an empty commit. Existing tags are never replaced. Tags capture all tracked content in the commit, including non-Markdown files.
+- **VIEW AT TAG…** lists local tags with their descriptions and dates, then switches the entire working copy to the chosen commit. Finder, terminals, and other applications see those historical files too.
+- **LATEST TAG** visits the newest tag by creation date among tags reachable from the saved working branch. For lightweight tags, Git uses the commit date. This action does not mean the latest untagged work.
+- **RETURN TO CURRENT WORK** switches back to the saved working branch, including commits after the latest milestone. The return destination is stored in the worktree's Git directory and survives LCARS restarts.
+- **PUSH BACKUP…** previews configured push destinations and pushes the working branch plus, optionally, one selected tag. **CREATE TAG…** also offers an optional push after the milestone is saved. GitHub organizations need no LCARS-specific setup: each repository uses its existing remote and Git credentials. Pushes are atomic and never forced; rejected pushes leave local commits and tags intact. LCARS does not automatically pull, merge, or resolve remote divergence.
+
+Document **Actions → COMMIT…** commits that Markdown file without tagging it. Other unstaged files remain pending. Unrelated staged files block a per-file commit; use the repository-level action or resolve the index in Git first. File commits still belong to the repository's normal history.
+
+Switching requires the entire repository to have no staged changes, modified/deleted tracked files, or non-ignored untracked files. LCARS never stashes, resets, cleans, or forces a switch. Ignored untracked files are outside snapshots and normally remain in place; a switch is also blocked if it would overwrite one. An expired preview requires a fresh review, including when changed file contents or remote configuration have changed.
+
+Historical versions are read-only in LCARS, including nested mounts and generated Markdown writes. A banner identifies the selected milestone. External editors can still modify the filesystem; those changes block further version switches until preserved with Git outside LCARS. Open dirty LCARS editors block version actions through browser records and server heartbeats. Browser heartbeats expire after 90 seconds when a tab stops responding; document revision checks independently reject stale saves, including after a round trip between versions. Preserve the editor text before reloading a rejected save.
+
+API clients saving documents inside a Git repository must include the `revision` from `GET /api/markdown/<document>` in the JSON payload to `POST /api/markdown/save/<document>`. Successful saves return the next revision. A stale or missing revision produces HTTP 409 and leaves the file untouched.
+
+Version switching is disabled for repositories containing the running LCARS application. Active Git operations, submodules, and sparse checkouts are also unsupported in this first version. Git hooks and signing settings are respected, and errors are displayed without undoing completed local commits. LCARS serializes its own repository writes; external Git tools and editors should remain idle during a version operation.

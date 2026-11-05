@@ -11,9 +11,10 @@
     <div class="subtle markdown-root-path">{{ markdown_root.display_path }}</div>
   </div>
   <div class="hero-badges">
-    <button class="badge alt{% if not archive_folder %} hidden{% endif %}" id="archive-markdown-context" data-folder="{{ archive_folder }}" type="button">ARCHIVE {{ archive_folder|upper }}</button>
+    {% if not markdown_version.read_only %}<button class="badge alt{% if not archive_folder %} hidden{% endif %}" id="archive-markdown-context" data-folder="{{ archive_folder }}" type="button">ARCHIVE {{ archive_folder|upper }}</button>{% endif %}
     {% if markdown_root.available %}<button class="badge alt" id="open-markdown-library-folder" data-folder="{{ current_folder }}" type="button" title="Open this folder in Finder">FINDER</button>{% endif %}
-    {% if markdown_root.available %}<a class="badge linklike" id="new-markdown-context-link" href="{{ markdown_url_for('markdown_new', folder=current_folder) if current_folder else markdown_url_for('markdown_new') }}">{% if current_folder %}NEW {{ current_name|upper }} DOC{% else %}NEW DOCUMENT{% endif %}</a>{% endif %}
+    {% include "markdown_version_menu.html" %}
+    {% if markdown_root.available and not markdown_version.read_only %}<a class="badge linklike" id="new-markdown-context-link" href="{{ markdown_url_for('markdown_new', folder=current_folder) if current_folder else markdown_url_for('markdown_new') }}">{% if current_folder %}NEW {{ current_name|upper }} DOC{% else %}NEW DOCUMENT{% endif %}</a>{% endif %}
     <div class="badge gold">{{ docs|length }} DOCS</div>
   </div>
 </header>
@@ -62,8 +63,11 @@
         <button class="markdown-row-action" type="button" title="Copy Markdown link" aria-label="Copy link to {{ doc.name }}" data-copy-markdown-link="{{ markdown_url_for('markdown_view', doc_id=doc.id) }}" data-doc-name="{{ doc.name }}">L</button>
         <button class="markdown-row-action actions-toggle" type="button" title="Actions" aria-label="Actions for {{ doc.name }}">A</button>
         <div class="actions-menu">
+          {% if markdown_version.enabled and not markdown_version.read_only %}<button type="button" data-version-action="commit" data-version-path="{{ doc.id }}">COMMIT…</button>{% endif %}
+          {% if not markdown_version.read_only %}
           <button class="rename-markdown" data-doc-id="{{ doc.id }}" data-doc-name="{{ doc.name }}">RENAME</button>
           <button class="delete-markdown" data-doc-id="{{ doc.id }}" data-doc-name="{{ doc.name }}">DELETE</button>
+          {% endif %}
         </div>
       </div>
     </div>

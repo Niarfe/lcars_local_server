@@ -10,11 +10,12 @@
   </div>
   <div class="hero-badges">
     <a class="badge linklike" id="markdown-back" href="{{ back_url }}" title="Back to your document list">BACK</a>
-    <a class="badge alt linklike" href="{{ markdown_url_for('markdown_edit', doc_id=doc_id) }}">EDIT</a>
+    {% if not markdown_version.read_only %}<a class="badge alt linklike" href="{{ markdown_url_for('markdown_edit', doc_id=doc_id) }}">EDIT</a>{% endif %}
     <button class="badge alt" id="open-markdown-folder" data-doc-id="{{ doc_id }}" type="button">FINDER</button>
     <div class="dropdown actions-dropdown">
       <button class="badge blue dropdown-toggle actions-toggle" type="button">ACTIONS</button>
       <div class="dropdown-menu actions-menu">
+        {% if markdown_version.enabled and not markdown_version.read_only %}<button class="dropdown-item" type="button" data-version-action="commit" data-version-path="{{ doc_id }}">COMMIT…</button>{% endif %}
         <button class="dropdown-item" type="button" data-copy-markdown-link="{{ markdown_url_for('markdown_view', doc_id=doc_id) }}" data-doc-name="{{ doc_name }}">COPY LINK</button>
         <div class="submenu">
           <button class="dropdown-item submenu-toggle" type="button">THEME</button>
@@ -39,7 +40,7 @@
         </div>
 
         <button class="dropdown-item" id="print-markdown" type="button">PRINT</button>
-        {% if can_refresh_todo %}
+        {% if can_refresh_todo and not markdown_version.read_only %}
         <button class="dropdown-item" id="refresh-todo-view" data-doc-id="{{ doc_id }}" type="button">REFRESH TODO</button>
         {% endif %}
         <div class="submenu">
@@ -58,8 +59,8 @@
           </div>
           {% endif %}
         </div>
-        <button class="dropdown-item" id="rename-markdown-current" data-doc-id="{{ doc_id }}" data-doc-name="{{ doc_name }}" type="button">RENAME</button>
-        <button class="dropdown-item" id="delete-markdown-current" data-doc-id="{{ doc_id }}" data-doc-name="{{ doc_name }}" type="button">DELETE</button>
+        {% if not markdown_version.read_only %}<button class="dropdown-item" id="rename-markdown-current" data-doc-id="{{ doc_id }}" data-doc-name="{{ doc_name }}" type="button">RENAME</button>
+        <button class="dropdown-item" id="delete-markdown-current" data-doc-id="{{ doc_id }}" data-doc-name="{{ doc_name }}" type="button">DELETE</button>{% endif %}
       </div>
     </div>
     <a class="badge gold linklike" data-markdown-library-link href="{{ markdown_url_for('markdown_page') }}">LIBRARY</a>

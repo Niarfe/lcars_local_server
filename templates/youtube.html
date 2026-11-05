@@ -1,23 +1,17 @@
 {% extends "base.html" %}
 {% block title %}LCARS YouTube{% endblock %}
+{% block sidebar_extra %}{% include "youtube_sidebar.html" %}{% endblock %}
 {% block content %}
 <header class="hero youtube-hero">
   <div class="youtube-hero-title">
     <div class="eyebrow">SOURCE MEMORY</div>
     <h1>YOUTUBE</h1>
   </div>
-  <nav class="youtube-tag-nav" aria-label="Filter saved sources by tag">
-    <a
-      class="youtube-tag-filter{% if not selected_tags %} active{% endif %}"
-      href="{{ all_tags_url }}"
-    >ALL</a>
+  <nav class="youtube-tag-nav" aria-label="Selected tag filters">
     {% for tag in tag_filters %}
-    <a
-      class="youtube-tag-filter{% if tag.active %} active{% endif %}"
-      href="{{ tag.url }}"
-      {% if tag.active %}aria-current="true" title="Remove {{ tag.label }} filter"{% else %}title="Add {{ tag.label }} filter"{% endif %}
-    >{{ tag.label }}{% if tag.active %} ×{% endif %}</a>
+    <a class="youtube-tag-filter active" href="{{ tag.url }}" title="Remove {{ tag.label }} filter">{{ tag.label }} ×</a>
     {% endfor %}
+    {% if untagged %}<a class="youtube-tag-filter active" href="{{ all_tags_url }}" title="Remove untagged filter">UNTAGGED ×</a>{% endif %}
   </nav>
 </header>
 
@@ -25,11 +19,13 @@
   <form class="youtube-search-row" action="{{ url_for('youtube_page') }}" method="get">
     <input class="new-md-input" name="q" type="search" value="{{ query }}" placeholder="SOURCE, TAG, NOTE, TITLE..." />
     {% for tag in selected_tags %}<input name="tag" type="hidden" value="{{ tag }}" />{% endfor %}
+    {% if untagged %}<input name="untagged" type="hidden" value="1" />{% endif %}
     {% if view == 'items' %}<input name="view" type="hidden" value="items" />{% endif %}
     <button class="action" type="submit">SEARCH</button>
-    {% if query or selected_tags %}
+    {% if query or selected_tags or untagged %}
     <a class="youtube-clear-filter" href="{{ url_for('youtube_page', view='items') if view == 'items' else url_for('youtube_page') }}">CLEAR</a>
     {% endif %}
+    {% if query %}<a class="youtube-clear-filter" href="{{ clear_search_url }}">CLEAR SEARCH</a>{% endif %}
     <div class="youtube-view-toggle" aria-label="Choose source or video results">
       <a class="{% if view == 'sources' %}active{% endif %}" href="{{ sources_url }}">SOURCES</a>
       <a class="{% if view == 'items' %}active{% endif %}" href="{{ items_url }}">VIDEOS</a>
@@ -54,7 +50,9 @@
   <div class="panel-header">
     <span>{% if view == 'items' %}WATCH LIST{% else %}SAVED SOURCES{% endif %}</span>
     <span class="subtle">
-      {% if selected_tags %}TAGS: {{ selected_tags|join(' + ') }}{% elif query %}{{ query }}{% else %}ALL{% endif %}
+      {% if selected_tags %}TAGS: {{ selected_tags|join(' + ') }}{% elif untagged %}UNTAGGED{% else %}ALL{% endif %}
+      {% if query %} &middot; SEARCH: {{ query }}{% endif %}
+      &middot; {{ matching_video_count }} MATCHING VIDEO{{ '' if matching_video_count == 1 else 'S' }}
     </span>
   </div>
 
@@ -62,7 +60,7 @@
   <div class="youtube-source-grid">
     {% for source in sources %}
     <article class="youtube-source-card">
-      <a class="youtube-thumb-link" href="{{ url_for('youtube_source', source_id=source.id) }}">
+      <a class="youtube-thumb-link" href="{{ source.source_library_url }}">
         {% if source.thumbnail_url %}
         <img class="youtube-thumb" src="{{ source.thumbnail_url }}" alt="" loading="lazy" />
         {% else %}
@@ -71,11 +69,11 @@
       </a>
       <div class="youtube-card-body">
         <div class="youtube-card-title">
-          <a href="{{ url_for('youtube_source', source_id=source.id) }}">{{ source.alias or source.name }}</a>
+          <a href="{{ source.source_library_url }}">{{ source.alias or source.name }}</a>
         </div>
         <div class="youtube-card-meta">
           <span class="youtube-video-count" tabindex="0">
-            {{ source.video_count }} SAVED ITEM{% if source.video_count != 1 %}S{% endif %}
+            {% if filtered %}{{ source.matching_count }} MATCHING / {% endif %}{{ source.video_count }} SAVED ITEM{% if source.video_count != 1 %}S{% endif %}
             {% if source.video_titles %}
             <span class="youtube-title-flyout">
               {% for title in source.video_titles %}
@@ -109,7 +107,7 @@
         <div class="youtube-card-title">
           <a href="{{ item.url }}" target="_blank" rel="noopener noreferrer">{{ item.title }}</a>
         </div>
-        <a class="youtube-item-source" href="{{ url_for('youtube_source', source_id=item.source_id) }}">
+        <a class="youtube-item-source" href="{{ item.source_library_url }}">
           {{ item.source_alias or item.source_name }}
         </a>
       </div>
@@ -119,7 +117,7 @@
   {% else %}
   <div class="empty-state">
     <div class="empty-title">NO {% if view == 'items' %}VIDEOS{% else %}YOUTUBE SOURCES{% endif %} FOUND</div>
-    <div class="subtle">{% if selected_tags or query %}Remove a filter or try another search.{% else %}Capture a video or Short URL, or use the bookmarklet while watching YouTube.{% endif %}</div>
+    <div class="subtle">{% if filtered %}Choose another tag or try another search.{% else %}Capture a video or Short URL, or use the bookmarklet while watching YouTube.{% endif %}</div>
   </div>
   {% endif %}
 </section>
