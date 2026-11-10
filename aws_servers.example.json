@@ -1,0 +1,13 @@
+{
+  "servers": [
+    {
+      "name": "GPU SERVER",
+      "region": "us-east-1",
+      "instance_id": "i-xxxxxxxxxxxxxxxxx",
+      "jupyter_url": "http://YOUR_ELASTIC_IP:8888",
+      "ssh_hint": "ssh ubuntu@YOUR_ELASTIC_IP",
+      "notes": "Set enabled true after editing instance_id and region.",
+      "enabled": false
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+[
+  {
+    "name": "example-gpu",
+    "host": "YOUR_ELASTIC_IP",
+    "port": 8891,
+    "protocol": "http",
+    "label": "EXAMPLE GPU"
+  }
+]

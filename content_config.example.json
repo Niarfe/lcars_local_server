@@ -1,0 +1,12 @@
+{
+  "markdown_dir": "~/Documents/LCARS_CONTENT/markdown",
+  "books_dir": "~/Documents/LCARS_CONTENT/books",
+  "sounds_dir": "./static/sounds/",
+  "markdown_mounts": [
+    {
+      "id": "00000000000000000000000000000000",
+      "label": "example-notes",
+      "path": "~/Documents/example-notes"
+    }
+  ]
+}

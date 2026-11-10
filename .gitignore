@@ -151,6 +151,14 @@ activemq-data/
 .env
 .envrc
 s3_library.local.json
+
+# Local machine configuration. Each has a committed .example.json; the app
+# writes defaults on first run if the real file is absent. Keep real values
+# out of this public repo.
+content_config.json
+aws_servers.json
+remote_jupyter_servers.json
+links.json
 .venv
 env/
 venv/

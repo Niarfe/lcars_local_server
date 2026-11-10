@@ -1,9 +1,0 @@
-[
-  {
-    "name": "awsgpu",
-    "host": "35.95.187.165",
-    "port": 8891,
-    "protocol": "http",
-    "label": "5002 CUDA"
-  }
-]
